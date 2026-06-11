@@ -1,0 +1,24 @@
+# Local operating data and evidence
+data/*
+!data/.gitkeep
+!data/rules/
+data/rules/*
+!data/rules/FutureFlow_PMF阶段期权分红.xlsx
+
+# Backups and generated reports
+backups/
+qa/
+
+# Machine-specific launch configuration
+com.futureflow.cfo-weekly.plist
+
+# Runtime files
+__pycache__/
+*.py[cod]
+*.log
+.DS_Store
+
+# Local credentials
+.env
+.env.*
+!.env.example
