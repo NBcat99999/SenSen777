@@ -63,57 +63,6 @@ INVESTOR_TARGETS = [
 ]
 
 
-def build_demo_customers():
-    cities = ["上海","北京","广州","深圳","杭州","成都","西安","昆明","厦门","南京","重庆","桂林","张家界","青岛","三亚"]
-    sectors = ["入境旅行社","地接社","商务会奖","文旅集团","旅游目的地运营"]
-    products = ["海外社媒代运营","GEO内容增长","英文官网及SEO","海外线索增长","整合营销顾问"]
-    sources = ["创始人资源","客户转介绍","行业活动","内容获客","产业合作","商协会引荐"]
-    monthly_fees = [
-        9800, 12800, 7600, 15600, 11800, 22000, 8900, 13500, 16800, 10500,
-        24800, 7200, 14200, 19600, 8600, 11200, 27500, 9300, 15200, 6800,
-        18400, 12100, 23800, 7900, 14600, 10200, 31500, 8800, 17400, 13200,
-        6500, 20800, 9600, 14900, 25800, 8100, 11600, 19200, 7300, 16400,
-    ]
-    margins = [56,61,49,64,58,67,52,59,63,54,69,47,60,65,51,57,71,53,62,46,66,58,68,50,61,55,72,52,64,59,45,67,54,62,70,50,57,65,48,63]
-    acquisition_costs = [4200,6800,3100,9200,5600,11500,3900,7400,8600,4700,12800,2800,6300,9800,3500,5200,14200,4100,7900,2600,10500,5900,12100,3300,7100,4600,15800,3700,8900,6200,2400,10900,4300,7600,13600,3000,5400,10100,2700,8200]
-    renewal_probabilities = [82,76,68,88,79,91,72,84,86,74,93,61,81,89,66,78,94,70,85,58,90,77,92,64,83,73,95,69,87,80,55,90,71,84,93,63,75,88,60,86]
-    statuses = (
-        ["稳定续费"] * 20 + ["交付中"] * 7 + ["待续约"] * 5 +
-        ["回款关注"] * 3 + ["暂停服务"] * 3 + ["已流失"] * 2
-    )
-    payment_days = [15,30,0,30,15,45,30,15,30,0,45,15,30,30,0,15,45,30,15,0,30,15,45,30,15,0,45,15,30,30,0,45,15,30,45,0,15,30,15,45]
-    payment_statuses = ["正常","正常","已回款","正常","正常","逾期15天","正常","正常","正常","已回款","逾期30天","正常","正常","正常","已回款","正常","逾期15天","正常","正常","已回款","正常","正常","逾期30天","正常","正常","已回款","逾期15天","正常","正常","正常","已回款","逾期30天","正常","正常","逾期15天","已回款","正常","正常","正常","逾期30天"]
-    customers = []
-    today = date.today()
-    for i in range(40):
-        city = cities[(i * 7 + i // 3) % len(cities)]
-        sector = sectors[(i * 3 + i // 5) % len(sectors)]
-        mrr = monthly_fees[i]
-        start = today - timedelta(days=38 + (i * 29) % 510)
-        contract_months = [3, 6, 12, 12, 6, 9][i % 6]
-        status = statuses[i]
-        outstanding = 0
-        if payment_statuses[i] == "逾期15天":
-            outstanding = round(mrr * .5)
-        elif payment_statuses[i] == "逾期30天":
-            outstanding = mrr
-        customers.append({
-            "id": f"demo-customer-{i+1:02d}",
-            "name": f"{city}·{sector}·{i+1:02d}",
-            "displayName": f"{city}某{sector}（客户{i+1:02d}）",
-            "city": city, "sector": sector,
-            "product": products[i % len(products)], "source": sources[i % len(sources)],
-            "mrr": mrr, "setupRevenue": [0, 5800, 12000, 16800, 8000, 22000][i % 6],
-            "grossMargin": margins[i], "acquisitionCost": acquisition_costs[i],
-            "paymentDays": payment_days[i], "paymentStatus": payment_statuses[i],
-            "outstanding": outstanding, "renewalProbability": renewal_probabilities[i],
-            "contractMonths": contract_months,
-            "startDate": str(start), "endDate": str(start + timedelta(days=contract_months * 30)),
-            "status": status, "active": status not in ("暂停服务", "已流失"),
-            "isDemo": True,
-        })
-    return customers
-
 DEFAULT_FUNDING_SIGNALS = [
     {"title":"携程 TripGenie 人工智能辅助订单量同比增长约 400%","source":"Trip.com Group（携程集团）","date":"2026-02-24","link":"https://www.trip.com/newsroom"},
     {"title":"湖南旅游产业母基金参与设立首期 20 亿元马栏山文化科技基金","source":"湖南省国资委","date":"2025-05-23","link":"https://gzw.hunan.gov.cn/gzjg/gqdt/202505/t20250523_33680546.html"},
@@ -178,9 +127,6 @@ def migrate_state_preserving_data(state):
     state["investorTargets"] = merge_records_preserving_existing(
         state.get("investorTargets"), INVESTOR_TARGETS
     )
-    state["demoCustomers"] = merge_records_preserving_existing(
-        state.get("demoCustomers"), defaults["demoCustomers"]
-    )
     state["schemaVersion"] = max(int(state.get("schemaVersion", 0)), SCHEMA_VERSION)
     return state
 
@@ -211,18 +157,13 @@ def snapshot_state(reason="save"):
 def seed_state():
     today = date.today()
     return {
-        "settings": {"companyName": "上海朝晨未来信息科技有限公司 / Future Flow", "reportOwner": "刘金鑫", "currency": "CNY", "weeklyDay": "0"},
+        "settings": {"companyName": "Future Flow", "reportOwner": "", "currency": "CNY", "weeklyDay": "0"},
         "schemaVersion": SCHEMA_VERSION,
         "accounts": [
-            {"id": "acc-bank", "name": "公司基本户", "openingBalance": 150000},
-            {"id": "acc-cash", "name": "备用金", "openingBalance": 5000},
+            {"id": "acc-bank", "name": "公司基本户", "openingBalance": 0},
+            {"id": "acc-cash", "name": "备用金", "openingBalance": 0},
         ],
-        "transactions": [
-            {"id": "tx-1", "date": str(today - timedelta(days=20)), "type": "income", "amount": 17400, "account": "acc-bank", "counterparty": "客户A", "category": "GEO服务", "project": "三个月GEO服务", "contractNo": "FF-GEO-001", "invoiceNo": "INV-001", "bankRef": "BANK-001", "purpose": "客户三个月服务费预付款"},
-            {"id": "tx-2", "date": str(today - timedelta(days=14)), "type": "income", "amount": 30000, "account": "acc-bank", "counterparty": "客户B", "category": "官网建设", "project": "英文官网建设", "contractNo": "FF-WEB-001", "invoiceNo": "INV-002", "bankRef": "BANK-002", "purpose": "网站建设全额预付款"},
-            {"id": "tx-3", "date": str(today - timedelta(days=8)), "type": "expense", "amount": 25000, "account": "acc-bank", "counterparty": "员工团队", "category": "工资社保", "project": "公司运营", "contractNo": "", "invoiceNo": "", "bankRef": "BANK-003", "purpose": "五名员工部分薪酬及社保"},
-            {"id": "tx-4", "date": str(today - timedelta(days=5)), "type": "expense", "amount": 6800, "account": "acc-bank", "counterparty": "软件及云服务商", "category": "软件工具", "project": "AI与云服务", "contractNo": "", "invoiceNo": "INV-S-001", "bankRef": "BANK-004", "purpose": "模型、服务器和运营工具"},
-        ],
+        "transactions": [],
         "incomeEntries": [],
         "costItems": [],
         "dividendRules": {
@@ -244,25 +185,16 @@ def seed_state():
         "evidence": [],
         "reimbursements": [],
         "demoMode": True,
-        "demoCustomers": build_demo_customers(),
-        "operating": {"customers": 4, "mrr": 50000},
+        "demoCustomers": [],
+        "operating": {"customers": 0, "mrr": 0},
         "investorTargets": INVESTOR_TARGETS,
         "fundingSignals": DEFAULT_FUNDING_SIGNALS,
-        "assumptions": {"openingCash": 155000, "employees": 5, "fixedCost": 90000, "grossMargin": 60, "growthRate": 12, "churnRate": 5, "fundingTarget": 3000000, "postFundingBurn": 250000},
+        "assumptions": {"openingCash": 0, "employees": 0, "fixedCost": 0, "grossMargin": 0, "growthRate": 0, "churnRate": 0, "fundingTarget": 0, "postFundingBurn": 0},
         "budgets": [],
-        "obligations": [
-            {"id": "ob-1", "type": "receivable", "counterparty": "客户C", "amount": 12000, "dueDate": str(today + timedelta(days=8)), "contractNo": "FF-SM-001", "owner": "刘金鑫", "note": "月度社媒服务费", "status": "未结清"},
-            {"id": "ob-2", "type": "payable", "counterparty": "外包开发", "amount": 8000, "dueDate": str(today + timedelta(days=12)), "contractNo": "SUP-001", "owner": "项目负责人", "note": "官网开发阶段款", "status": "未结清"},
-        ],
+        "obligations": [],
         "investors": [],
-        "shareholders": [
-            {"id": "sh-1", "name": "创始人", "role": "创始人", "shares": 900000, "paidIn": 90000},
-            {"id": "sh-2", "name": "员工期权池", "role": "员工期权池", "shares": 100000, "paidIn": 0},
-        ],
-        "risks": [
-            {"id": "risk-1", "area": "客户与收入", "level": "高", "owner": "CFO", "dueDate": str(today + timedelta(days=21)), "description": "客户数量少，尚未验证续费率", "mitigation": "完成首批客户续约与客户访谈", "status": "整改中"},
-            {"id": "risk-2", "area": "合同与法律", "level": "中", "owner": "CFO", "dueDate": str(today + timedelta(days=10)), "description": "合同模板交付频率与服务期限存在不一致", "mitigation": "统一模板并由律师复核", "status": "整改中"},
-        ],
+        "shareholders": [],
+        "risks": [],
         "governance": {
             "规范会计账簿": False, "合同台账完整": False, "发票与流水一致": False, "工资社保合规": False,
             "知识产权归属完整": False, "数据隐私文件完整": False, "股权无代持争议": False, "重大付款双人审批": False,

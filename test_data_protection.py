@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
         old = {"transactions": [], "reimbursements": [], "accounts": [], "audit": [], "legacyField": "keep-me"}
         migrated = server.migrate_state_preserving_data(old)
         assert migrated["legacyField"] == "keep-me"
-        assert len(migrated["demoCustomers"]) == 40
+        assert migrated["demoCustomers"] == []
         assert len(migrated["investorTargets"]) >= 24
     finally:
         server.STATE_FILE = original_state_file

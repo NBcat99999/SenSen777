@@ -53,7 +53,7 @@ assert((await page.locator("#reimbursementMetrics .metric").count()) === 3, "报
 assert((await page.locator("#reimbursementImpact").innerText()).includes("即时联动"), "缺少报销联动预览");
 
 await page.getByRole("button", { name: "客户模型", exact: true }).click();
-assert((await page.locator("#customerRows tr").count()) === 40, "演示客户数量错误");
+assert((await page.locator("#customerRows tr").count()) === 0, "初始客户表应为空");
 assert((await page.locator("#customerMetrics .metric").count()) === 6, "客户联动指标不完整");
 
 await page.getByRole("button", { name: "收支成本", exact: true }).click();
