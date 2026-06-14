@@ -15,7 +15,7 @@ financing_compensation = min(
     rules["qualifiedFinancing"] * rules["financingBonusRate"] / 100,
     rules["founderDeferredCompCap"],
 )
-assert financing_compensation == 250000
+assert financing_compensation == 0
 assert rules["vestingYearsMin"] == 4
 assert rules["vestingYearsMax"] == 5
 assert rules["cliffMonths"] == 12

@@ -1,40 +1,45 @@
-from copy import deepcopy
+from datetime import date
 
-from server import financial_snapshot, seed_state
+from server import contract_schedule, financial_snapshot, rebuild_contract_schedule, seed_state
 
 
 state = seed_state()
-state["demoMode"] = True
 base = financial_snapshot(state)
-
 contract = {
     "id": "contract-linkage-test",
-    "displayName": "上海某入境旅行社",
-    "mrr": 20000,
-    "grossMargin": 65,
-    "acquisitionCost": 5000,
-    "renewalProbability": 85,
-    "status": "交付中",
-    "active": True,
+    "customerName": "正式客户",
+    "contractNo": "FF-2026-001",
+    "product": "海外社媒代运营",
+    "startDate": str(date.today()),
+    "contractMonths": 12,
+    "monthlyFee": 20000,
+    "setupFee": 10000,
+    "directCost": 6000,
+    "grossMargin": 70,
+    "paymentDays": 30,
+    "status": "履约中",
 }
-state["demoCustomers"].append(contract)
+state["contracts"].append(contract)
+rebuild_contract_schedule(state, contract)
 added = financial_snapshot(state)
 
+assert len(contract_schedule(contract)) == 13
+assert len(state["incomeEntries"]) == 13
 assert added["actualCash"] == base["actualCash"]
-assert added["mrr"] == base["mrr"] + 20000
-assert added["projectedNetBurn"] <= base["projectedNetBurn"]
-assert added["runway"] >= base["runway"]
+assert added["mrr"] == 20000
+assert added["openAR"] == 250000
+assert added["contractCount"] == 1
 
-contract["mrr"] = 8000
+contract["monthlyFee"] = 8000
+rebuild_contract_schedule(state, contract)
 reduced = financial_snapshot(state)
+assert reduced["mrr"] == 8000
+assert reduced["openAR"] == 106000
 assert reduced["actualCash"] == base["actualCash"]
-assert reduced["mrr"] == base["mrr"] + 8000
-assert reduced["projectedNetBurn"] >= added["projectedNetBurn"]
 
-contract["status"] = "暂停服务"
-contract["active"] = False
+contract["status"] = "暂停"
 paused = financial_snapshot(state)
-assert paused["mrr"] == base["mrr"]
+assert paused["mrr"] == 0
 assert paused["actualCash"] == base["actualCash"]
 
-print("PASS: contract additions, budget reductions and pauses update forecast metrics without fabricating cash")
+print("PASS: formal contracts generate receivable schedules and drive forecasts without fabricating cash")

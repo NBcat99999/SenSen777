@@ -3,617 +3,375 @@ const TODAY=new Date().toISOString().slice(0,10), MONTH=TODAY.slice(0,7);
 const money=n=>'¥'+Number(n||0).toLocaleString('zh-CN',{maximumFractionDigits:0});
 const pct=n=>`${Number(n||0).toFixed(1)}%`;
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-let state;
-const toast=text=>{const el=$('#toast');el.textContent=text;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1800)};
-const financeBus=new EventTarget();
-const broadcast=(action,modules='全部模块')=>{
- $('#actionSignal').textContent=`${action} → ${modules}`;
- financeBus.dispatchEvent(new CustomEvent('finance:changed',{detail:{action,modules}}));
-};
+const sum=(rows,get=x=>Number(x.amount||0))=>rows.reduce((s,x)=>s+get(x),0);
 const api=async(path,options={})=>{const res=await fetch(path,{headers:options.body instanceof FormData?{}:{'Content-Type':'application/json'},...options});if(!res.ok)throw new Error(await res.text());return res.json()};
-const metric=(label,value,sub='',cls='')=>`<div class="metric ${cls}"><span>${label}</span><strong>${value}</strong><span>${sub}</span></div>`;
-const sum=rows=>rows.reduce((total,row)=>total+Number(row.amount||0),0);
-const costTotal=row=>Number(row.unitAmount||0)*Number(row.quantity||0);
-const monthContains=(row,month)=>{
- const start=String(row.date||row.startDate||'').slice(0,7);
- const end=String(row.endDate||'').slice(0,7);
- return Boolean(start)&&start<=month&&(!end||end>=month);
-};
-const evidenceFor=id=>state.evidence.some(x=>x.transactionId===id);
-const claimHasTicket=x=>Boolean(x.invoiceNo||x.attachmentId);
-const transactionHasTicket=x=>Boolean(x.invoiceNo||evidenceFor(x.id));
+const metric=(label,value,sub='',cls='')=>`<div class="metric ${cls}"><span>${label}</span><strong>${value}</strong><small>${sub}</small></div>`;
+const input=(collection,id,field,value,type='text',cls='')=>`<input class="cell-input ${cls}" data-edit="${collection}" data-id="${id}" data-field="${field}" type="${type}" value="${esc(value)}">`;
+const select=(collection,id,field,value,options)=>`<select class="cell-select" data-edit="${collection}" data-id="${id}" data-field="${field}">${options.map(x=>`<option ${x===value?'selected':''}>${x}</option>`).join('')}</select>`;
+let state;
+const toast=text=>{const el=$('#toast');el.textContent=text;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200)};
+const announce=(text)=>{$('#actionSignal').textContent=text;toast(text)};
+const active=rows=>rows.filter(x=>!x.archived&&x.status!=='已归档');
+const costTotal=x=>Number(x.unitAmount||0)*Number(x.quantity||0);
+const employeeCost=x=>Number(x.baseSalary||0)+Number(x.employerSocial||0)+Number(x.housingFund||0)+Number(x.monthlyBonus||0);
+const monthActive=(x,month=MONTH)=>String(x.date||x.startDate||'').slice(0,7)<=month&&(!x.endDate||String(x.endDate).slice(0,7)>=month);
 const glossary=[
- ['Actual Cash','实际现金','期初现金＋累计收入＋融资－经营支出－已支付报销','对应已经真实发生的银行及现金收付','低于零为重大风险'],
- ['Available Cash','可用现金','实际现金－待审核报销－已审核未支付报销','反映扣除已知承诺后的真实资金余量','低于三个月净消耗需预警'],
- ['Committed Cash','承诺现金','待审核报销＋已审核未支付报销','虽未付款但已有较高概率流出的现金','应纳入短期资金安排'],
- ['Accrued Expense','权责费用','经营支出＋已审核报销＋已支付报销','按经济事项发生确认费用，而非只看付款','与现金支出需分别管理'],
- ['Accounts Payable','应付账款','未结贸易应付＋已审核未支付报销','衡量公司已经形成但尚未支付的义务','到期前必须纳入现金计划'],
- ['MRR','月度经常性收入','当月可重复订阅收入合计','衡量可预测收入基础','连续下降即预警'],
- ['ARR','年度经常性收入','MRR × 12','用于融资估值和增长比较','不能混入一次性收入'],
- ['MoM Growth','月度环比增长率','（本月收入－上月收入）÷ 上月收入','判断增长速度是否持续','连续两月为负需复盘'],
- ['Gross Margin','毛利率','（收入－直接交付成本）÷ 收入','反映商业模式盈利空间','服务型公司低于 50%需关注'],
- ['NRR','净收入留存率','期末存量客户收入 ÷ 期初存量客户收入','包含续费、扩容、降配和流失','低于 100%说明存量萎缩'],
- ['GRR','毛收入留存率','（期初收入－流失－降配）÷ 期初收入','不包含扩容，更严格衡量留存','低于 85%需关注'],
- ['Logo Retention','客户数量留存率','期末留存客户数 ÷ 期初客户数','衡量客户是否持续续约','早期应逐客户跟踪'],
- ['CAC','客户获取成本','销售与市场投入 ÷ 新增付费客户数','衡量获取一个客户的现金成本','需与 LTV 联合判断'],
- ['LTV','客户终身价值','客单价 × 毛利率 ÷ 月流失率','估算单个客户贡献的长期毛利','数据少时仅作敏感性分析'],
- ['LTV / CAC','客户终身价值与获客成本比','LTV ÷ CAC','衡量获客投入是否经济','低于 3 倍通常需关注'],
- ['CAC Payback','获客成本回收期','CAC ÷ 单客户月毛利','衡量多久收回获客投入','超过 12至18个月需关注'],
- ['Burn Rate','现金消耗率','月度现金流出－月度现金流入','衡量每月净消耗现金','应结合增长结果判断'],
- ['Projected Net Burn','预计净消耗','固定成本＋本月已确认报销－MRR 对应毛利','用于前瞻性估算现金消耗，而非只看历史','持续增加需压缩成本或提升毛利'],
- ['Burn Multiple','现金消耗倍数','净现金消耗 ÷ 新增 ARR','衡量烧钱换增长的效率','高于 2 倍需重点关注'],
- ['Runway','现金可支撑时间','可用现金 ÷ 预计月度净消耗','估算资金还能支持多久','低于 6 个月为融资预警'],
- ['DSO','应收账款周转天数','应收账款 ÷ MRR × 30','衡量客户回款速度','超过合同账期需催收'],
- ['AR Aging','应收账款账龄','按逾期天数分组应收余额','识别坏账与现金风险','逾期 30 天以上需升级'],
- ['EBITDA','息税折旧摊销前利润','净利润＋利息＋税项＋折旧摊销','观察核心经营盈利能力','初创期用于趋势而非粉饰亏损'],
- ['Rule of 40','40 法则','收入增长率＋利润率','平衡软件企业增长与盈利','成熟期合计低于 40需解释'],
- ['Revenue Concentration','收入集中度','最大客户收入 ÷ 总收入','识别对单一客户依赖','超过 30%通常需披露'],
- ['Pipeline Coverage','销售管道覆盖倍数','有效商机金额 ÷ 销售目标','判断未来收入目标支撑度','低于 3 倍需补充商机']
- ,['Evidence Coverage','票据覆盖率','有发票号码或附件的费用笔数 ÷ 费用总笔数','衡量代账、税务及尽调证据完整性','低于 90%需立即补齐']
-];
-const rulebook=[
- ['现金安全','Runway（现金可支撑时间）≥12个月','6至12个月','<6个月','冻结非核心支出并启动融资'],
- ['收入规模','ARR（年度经常性收入）≥300万元','100万至300万元','<100万元','优先验证续费与标准化交付'],
- ['客户验证','付费客户≥20家','8至19家','<8家','逐客户建立续费和效果底稿'],
- ['毛利质量','毛利率≥60%','45%至60%','<45%','拆解人工及外包交付成本'],
- ['客户集中度','最大客户<20%','20%至30%','>30%','增加客户组合并限制单一依赖'],
- ['单位经济','LTV/CAC（价值成本比）≥3倍','1.5至3倍','<1.5倍','暂停低效获客渠道'],
- ['回款效率','DSO（应收账款周转天数）≤30天','31至60天','>60天','升级催收并调整付款条款'],
- ['票据合规','票据覆盖率≥95%','90%至95%','<90%','暂停报销支付并补齐凭证'],
- ['续费质量','续约概率≥85%','70%至85%','<70%','启动客户成功干预'],
- ['融资准备','罗盘≥80分','65至80分','<65分','先补经营证据再正式路演'],
- ['应付压力','应付<可用现金20%','20%至40%','>40%','重排付款优先级'],
- ['数据真实性','已入账数据证据可核验','部分字段缺证据','规划口径对外使用','规划与已入账口径必须隔离']
+ ['MRR','月度经常性收入','有效合同月度服务费合计','衡量可预测收入基础','连续下降需复盘'],
+ ['ARR','年度经常性收入','MRR × 12','融资估值常用收入规模','不能包含一次性收入'],
+ ['Gross Margin','毛利率','（合同收入－直接交付成本）÷合同收入','判断商业模式质量','低于 50%需拆解成本'],
+ ['Runway','现金可支撑时间','可用现金÷预计月度净消耗','决定融资时间窗口','低于 6 个月为红色预警'],
+ ['AR','应收账款','应收＋已开票＋已确认未回款','判断回款压力','逾期应立即催收'],
+ ['DSO','应收账款周转天数','应收÷MRR×30','衡量回款效率','超过 60 天需关注'],
+ ['CAC','客户获取成本','销售市场投入÷新增客户','判断获客效率','需与 LTV 联合判断'],
+ ['LTV / CAC','客户价值成本比','客户终身价值÷获客成本','衡量单位经济','低于 3 倍需关注'],
+ ['Burn Rate','现金消耗率','月度现金流出－现金流入','衡量每月净消耗','需与增长联动'],
+ ['Pipeline Coverage','融资管线覆盖','概率加权融资额÷目标融资额','衡量融资目标支撑度','低于 1 倍需补充机构'],
+ ['Dilution','融资稀释率','融资额÷投后估值','测算原股东持股下降','条款需与估值一起判断'],
+ ['Data Room Readiness','资料室完成度','已完成资料÷全部资料','判断尽调准备程度','低于 80%不宜正式尽调'],
 ];
 
 function normalize(){
- ['accounts','transactions','incomeEntries','costItems','evidence','obligations','investors','reimbursements','investorTargets','fundingSignals','demoCustomers'].forEach(k=>state[k]??=[]);
- state.demoMode??=true;
- state.assumptions??={};state.operating??={};
- state.operating.customers??=4;state.operating.mrr??=50000;
- state.assumptions.employees??=5;state.assumptions.grossMargin??=60;
- state.assumptions.fixedCost??=90000;state.assumptions.fundingTarget??=3000000;
- state.dividendRules??={};
- state.dividendRules.founderPool??=60;state.dividendRules.cofounderPool??=30;state.dividendRules.employeeEsop??=10;
- state.dividendRules.vestingYearsMin??=4;state.dividendRules.vestingYearsMax??=5;state.dividendRules.cliffMonths??=12;
- state.dividendRules.pmfDividendRate??=0;state.dividendRules.retentionReserveRate??=20;
- state.dividendRules.afterTaxProfit??=1000000;state.dividendRules.qualifiedFinancing??=5000000;
- state.dividendRules.founderDeferredCompCap??=300000;state.dividendRules.financingBonusRate??=5;
- state.dividendRules.leaverRepurchase??='无离职回购';
+ ['contracts','incomeEntries','costItems','employees','payrollRuns','shareholders','dividendDistributions','fundraisingRounds','investorPipeline','investorInteractions','reimbursements','transactions','evidence','investorTargets','fundingSignals','dataRoomChecklist','accounts'].forEach(k=>state[k]??=[]);
+ state.dividendRules??={};state.assumptions??={};state.operating??={};
+ Object.assign(state.dividendRules,{founderPool:60,cofounderPool:30,employeeEsop:10,retentionReserveRate:20,pmfDividendRate:0,afterTaxProfit:0,...state.dividendRules});
 }
 
 function derive(month=MONTH){
- const customerRecords=state.demoMode?state.demoCustomers:[];
- const customers=customerRecords.filter(x=>x.active!==false&&!['暂停服务','已流失'].includes(x.status));
- const modeledMrr=customers.length?sum(customers.map(x=>({amount:x.mrr}))):Number(state.operating.mrr||0);
- const modeledSetup=customers.length?sum(customers.filter(x=>String(x.startDate).startsWith(month)).map(x=>({amount:x.setupRevenue}))):0;
- const weightedMargin=customers.length?customers.reduce((s,x)=>s+Number(x.mrr)*Number(x.grossMargin),0)/modeledMrr:Number(state.assumptions.grossMargin||0);
- const txIncome=state.transactions.filter(x=>x.type==='income');
- const txFinancing=state.transactions.filter(x=>x.type==='financing');
- const txExpense=state.transactions.filter(x=>x.type==='expense');
- const incomeEntries=state.incomeEntries||[];
- const costItems=state.costItems||[];
- const recognizedIncome=incomeEntries.filter(x=>['已确认','已回款'].includes(x.status));
- const receivedIncome=incomeEntries.filter(x=>x.status==='已回款');
- const recognizedCosts=costItems.filter(x=>['已发生','已支付'].includes(x.status));
- const paidCosts=costItems.filter(x=>x.status==='已支付');
- const committedCosts=costItems.filter(x=>x.status==='已发生');
- const activeClaims=state.reimbursements.filter(x=>x.status!=='已驳回');
- const pendingClaims=activeClaims.filter(x=>x.status==='待审核');
- const approvedClaims=activeClaims.filter(x=>x.status==='已审核');
- const paidClaims=activeClaims.filter(x=>x.status==='已支付');
- const recognizedClaims=activeClaims.filter(x=>['已审核','已支付'].includes(x.status));
- const monthFilter=rows=>rows.filter(x=>String(x.date||'').startsWith(month));
- const opening=sum(state.accounts.map(x=>({amount:x.openingBalance})));
- const modeledIncome=modeledMrr+modeledSetup;
- const actualCash=opening+sum(txIncome)+sum(txFinancing)+sum(receivedIncome)-sum(txExpense)-sum(paidCosts.map(x=>({amount:costTotal(x)})))-sum(paidClaims);
- const committedReimbursements=sum(pendingClaims)+sum(approvedClaims);
- const committedOperatingCosts=sum(committedCosts.filter(x=>x.frequency==='monthly'?monthContains(x,month):String(x.date||'').startsWith(month)).map(x=>({amount:costTotal(x)})));
- const availableCash=actualCash-committedReimbursements-committedOperatingCosts;
- const monthIncome=sum(monthFilter(txIncome))+sum(monthFilter(receivedIncome));
- const monthAccruedRevenue=sum(monthFilter(recognizedIncome));
- const monthTransactionExpense=sum(monthFilter(txExpense));
- const monthlyCostRows=costItems.filter(x=>x.status!=='暂停'&&(x.frequency==='monthly'?monthContains(x,month):String(x.date||'').startsWith(month)));
- const monthRecognizedCosts=sum(monthlyCostRows.filter(x=>['已发生','已支付'].includes(x.status)).map(x=>({amount:costTotal(x)})));
- const monthPaidCosts=sum(monthFilter(paidCosts).map(x=>({amount:costTotal(x)})));
- const monthBudgetCosts=sum(monthlyCostRows.map(x=>({amount:costTotal(x)})));
- const directCostRunRate=sum(monthlyCostRows.filter(x=>x.costNature==='direct').map(x=>({amount:costTotal(x)})));
- const operatingCostRunRate=sum(monthlyCostRows.filter(x=>x.costNature!=='direct').map(x=>({amount:costTotal(x)})));
- const monthPaidClaims=sum(monthFilter(paidClaims));
- const monthRecognizedClaims=sum(monthFilter(recognizedClaims));
- const monthPendingClaims=sum(monthFilter(pendingClaims));
- const cashOutflow=monthTransactionExpense+monthPaidCosts+monthPaidClaims;
- const accrualExpense=monthTransactionExpense+monthRecognizedCosts+monthRecognizedClaims;
- const mrr=modeledMrr;
- const detailedCosts=costItems.some(x=>x.status!=='暂停');
- const fixedCost=detailedCosts?monthBudgetCosts:Number(state.assumptions.fixedCost||0);
- const grossMargin=detailedCosts&&modeledIncome?Math.max(0,(modeledIncome-directCostRunRate)/modeledIncome*100):weightedMargin;
- const projectedGrossProfit=Math.max(0,modeledIncome-directCostRunRate);
- const projectedNetBurn=Math.max(0,fixedCost+monthRecognizedClaims-modeledIncome);
- const runway=projectedNetBurn>0?availableCash/projectedNetBurn:99;
- const openAR=sum(state.obligations.filter(x=>x.type==='receivable'&&x.status!=='已结清'));
- const openTradeAP=sum(state.obligations.filter(x=>x.type==='payable'&&x.status!=='已结清'));
- const reimbursementAP=sum(approvedClaims);
- const costAP=sum(recognizedCosts.filter(x=>x.status==='已发生').map(x=>({amount:costTotal(x)})));
- const openAP=openTradeAP+reimbursementAP+costAP;
- const ticketItems=[
-  ...txExpense.map(x=>({ok:transactionHasTicket(x)})),
-  ...activeClaims.map(x=>({ok:claimHasTicket(x)})),
-  ...recognizedCosts.map(x=>({ok:Boolean(x.invoiceNo)}))
- ];
- const ticketRate=ticketItems.length?ticketItems.filter(x=>x.ok).length/ticketItems.length*100:100;
- const cashBurn=Math.max(0,cashOutflow-monthIncome);
- const operatingResult=modeledIncome-fixedCost-monthRecognizedClaims;
- const dso=mrr?openAR/mrr*30:null;
- const customerCount=customers.length||Number(state.operating.customers||0);
- const averageCac=customers.length?customers.reduce((s,x)=>s+Number(x.acquisitionCost),0)/customers.length:null;
- const monthlyChurn=customers.length?Math.max(.01,(100-customers.reduce((s,x)=>s+Number(x.renewalProbability),0)/customers.length)/100):null;
- const arpa=customerCount?mrr/customerCount:0;
- const ltv=monthlyChurn?arpa*(grossMargin/100)/monthlyChurn:null;
- const ltvCac=averageCac?ltv/averageCac:null;
- const largestMrr=customers.length?Math.max(...customers.map(x=>Number(x.mrr))):null;
- const concentration=largestMrr&&mrr?largestMrr/mrr*100:null;
- const retention=customers.length?customers.reduce((s,x)=>s+Number(x.renewalProbability),0)/customers.length:null;
- const rules=state.dividendRules||{},poolTotal=Number(rules.founderPool||0)+Number(rules.cofounderPool||0)+Number(rules.employeeEsop||0);
- const distributableProfit=Number(rules.afterTaxProfit||0)*(1-Number(rules.retentionReserveRate||0)/100);
- const dividendPool=Math.max(0,distributableProfit*Number(rules.pmfDividendRate||0)/100);
- const financingCompPool=Math.min(Number(rules.qualifiedFinancing||0)*Number(rules.financingBonusRate||0)/100,Number(rules.founderDeferredCompCap||0));
- return{
-  opening,actualCash,availableCash,committedReimbursements,committedOperatingCosts,monthIncome,monthAccruedRevenue,monthTransactionExpense,
-  monthPaidClaims,monthPaidCosts,monthRecognizedCosts,monthBudgetCosts,monthRecognizedClaims,monthPendingClaims,cashOutflow,accrualExpense,mrr,grossMargin,
-  fixedCost,projectedGrossProfit,projectedNetBurn,runway,openAR,openAP,reimbursementAP,ticketRate,
-  cashBurn,operatingResult,pendingClaims,approvedClaims,paidClaims,activeClaims,dso,
-  customerCount,averageCac,monthlyChurn,arpa,ltv,ltvCac,concentration,retention,customers,customerRecords,modeledIncome,
-  incomeEntries,costItems,directCostRunRate,operatingCostRunRate,detailedCosts,
-  dividendRules:rules,poolTotal,distributableProfit,dividendPool,financingCompPool
- };
+ const contracts=active(state.contracts).filter(x=>['待履约','履约中','待续约'].includes(x.status)&&String(x.startDate||'9999').slice(0,7)<=month&&(!x.endDate||String(x.endDate).slice(0,7)>=month));
+ const mrr=sum(contracts,x=>Number(x.monthlyFee||0));
+ const setup=sum(contracts.filter(x=>String(x.startDate).startsWith(month)),x=>Number(x.setupFee||0));
+ const directContractCost=sum(contracts,x=>Number(x.directCost||0));
+ const employees=active(state.employees).filter(x=>x.status==='在职'&&monthActive(x,month));
+ const payroll=sum(employees,employeeCost);
+ const costs=active(state.costItems).filter(x=>x.status!=='暂停'&&monthActive(x,month));
+ const payrollRuns=active(state.payrollRuns);
+ const paidPayroll=payrollRuns.filter(x=>x.status==='已支付');
+ const accruedPayroll=payrollRuns.filter(x=>['已计提','已支付'].includes(x.status));
+ const costBudget=sum(costs,x=>x.frequency==='monthly'?costTotal(x):String(x.date).startsWith(month)?costTotal(x):0);
+ const directOther=sum(costs.filter(x=>x.costNature==='direct'),x=>x.frequency==='monthly'?costTotal(x):String(x.date).startsWith(month)?costTotal(x):0);
+ const income=active(state.incomeEntries);
+ const received=income.filter(x=>x.status==='已回款');
+ const recognized=income.filter(x=>['已确认','已回款'].includes(x.status));
+ const openIncome=income.filter(x=>['应收','已开票','已确认'].includes(x.status));
+ const overdue=openIncome.filter(x=>x.dueDate&&x.dueDate<TODAY);
+ const paidCosts=costs.filter(x=>x.status==='已支付');
+ const occurredCosts=costs.filter(x=>['已发生','已支付'].includes(x.status));
+ const claims=active(state.reimbursements).filter(x=>x.status!=='已驳回');
+ const approvedClaims=claims.filter(x=>x.status==='已审核'), paidClaims=claims.filter(x=>x.status==='已支付'), pendingClaims=claims.filter(x=>x.status==='待审核');
+ const opening=sum(state.accounts,x=>Number(x.openingBalance||0));
+ const financingReceived=sum(active(state.fundraisingRounds).filter(x=>x.status==='已交割'),x=>Number(x.actualAmount||0));
+ const actualCash=opening+financingReceived+sum(received)-sum(paidCosts,costTotal)-sum(paidClaims)-sum(paidPayroll);
+ const committed=sum(approvedClaims)+sum(pendingClaims)+sum(occurredCosts.filter(x=>x.status==='已发生'),costTotal)+sum(accruedPayroll.filter(x=>x.status==='已计提'));
+ const availableCash=actualCash-committed;
+ const monthlyRevenue=mrr+setup;
+ const monthlyCost=payroll+costBudget+directContractCost;
+ const grossMargin=monthlyRevenue?Math.max(0,(monthlyRevenue-directContractCost-directOther)/monthlyRevenue*100):0;
+ const netBurn=Math.max(0,monthlyCost-monthlyRevenue);
+ const runway=netBurn?availableCash/netBurn:99;
+ const ar=sum(openIncome), dso=mrr?ar/mrr*30:null;
+ const totalShares=sum(active(state.shareholders),x=>Number(x.shares||0));
+ const rules=state.dividendRules;
+ const dividendPool=Math.max(0,Number(rules.afterTaxProfit||0)*(1-Number(rules.retentionReserveRate||0)/100)*Number(rules.pmfDividendRate||0)/100);
+ const rounds=active(state.fundraisingRounds);
+ const currentRound=rounds.find(x=>!['已交割','已关闭'].includes(x.status))||rounds[0];
+ const target=Number(currentRound?.targetAmount||0);
+ const preMoney=Number(currentRound?.preMoneyValuation||0);
+ const dilution=target&&preMoney?target/(target+preMoney)*100:0;
+ const pipeline=active(state.investorPipeline).filter(x=>x.stage!=='已关闭');
+ const weightedFunding=sum(pipeline,x=>Number(x.ticket||0)*Number(x.probability||0)/100);
+ const dataRoom=state.dataRoomChecklist||[], dataRoomRate=dataRoom.length?dataRoom.filter(x=>x.completed).length/dataRoom.length*100:0;
+ const evidenceItems=[...occurredCosts,...claims], evidenceRate=evidenceItems.length?evidenceItems.filter(x=>x.invoiceNo||x.attachmentId).length/evidenceItems.length*100:100;
+ return{contracts,mrr,setup,employees,payroll,payrollRuns,paidPayroll,accruedPayroll,costs,costBudget,directContractCost,directOther,income,received,recognized,openIncome,overdue,claims,approvedClaims,pendingClaims,paidClaims,financingReceived,actualCash,availableCash,committed,monthlyRevenue,monthlyCost,grossMargin,netBurn,runway,ar,dso,totalShares,dividendPool,currentRound,target,preMoney,dilution,pipeline,weightedFunding,dataRoomRate,evidenceRate};
+}
+
+function scoreModel(f){
+ const cash=f.runway>=12?100:f.runway>=6?70:f.runway>=3?40:15;
+ const revenue=Math.min(100,f.contracts.length*8+f.mrr/30000*10);
+ const cost=f.grossMargin>=60?90:f.grossMargin>=45?65:f.grossMargin?35:10;
+ const compliance=(f.evidenceRate+f.dataRoomRate)/2;
+ const funding=Math.min(100,(f.weightedFunding/(f.target||1))*60+f.dataRoomRate*.4);
+ return{cash,revenue,cost,compliance,funding,score:(cash+revenue+cost+compliance+funding)/5};
 }
 
 function renderDashboard(){
- const f=derive(),customers=f.customerCount,avg=customers?f.mrr/customers:0;
+ const f=derive(),s=scoreModel(f);
  $('#dashboardMetrics').innerHTML=[
-  metric('实际现金',money(f.actualCash),'仅统计已发生收付款',f.actualCash<0?'risk':'good'),
-  metric('可用现金',money(f.availableCash),'扣除待审及待付报销',f.availableCash<0?'risk':'good'),
- metric('MRR（月度经常性收入）',money(f.mrr),'可重复合同收入'),
-  metric('本月确认收入',money(f.monthAccruedRevenue),'已确认及已回款收入'),
-  metric('本月权责成本',money(f.accrualExpense),'已发生、已支付及已审核费用'),
-  metric('Runway（现金可支撑时间）',f.runway>=99?'现金净流入':`${f.runway.toFixed(1)} 个月`,'可用现金 ÷ 预计净消耗',f.runway<6?'risk':'good'),
- metric('应收 / 应付',`${money(f.openAR)} / ${money(f.openAP)}`,'应付含已审核报销',f.openAR>f.mrr||f.openAP>f.actualCash?'risk':'')
+  metric('实际现金',money(f.actualCash),'已回款－已支付'),
+  metric('可用现金',money(f.availableCash),'扣除已知承诺',f.availableCash<0?'risk':'good'),
+  metric('MRR（月度经常性收入）',money(f.mrr),`${f.contracts.length} 份有效合同`),
+  metric('月度成本预算',money(f.monthlyCost),`工资 ${money(f.payroll)}`),
+  metric('应收账款',money(f.ar),`${f.overdue.length} 笔逾期`,f.overdue.length?'risk':''),
+  metric('Runway（现金可支撑时间）',f.runway>=99?'净流入':`${f.runway.toFixed(1)} 个月`,'现金安全期',f.runway<6?'risk':'good')
  ].join('');
- renderCompass(f);
- const severe=f.availableCash<0||f.runway<3,warning=f.runway<6||f.ticketRate<90||customers<8||f.openAR>f.mrr;
- $('#healthLabel').textContent=severe?'经营状态 / HIGH RISK（高风险）':warning?'经营状态 / ATTENTION（重点关注）':'经营状态 / STABLE（基本稳定）';
- $('#healthLabel').style.color=severe?'var(--red)':warning?'var(--amber)':'var(--green)';
- $('#healthReason').textContent=severe?'可用现金或现金安全垫已触发红线，回款、支出控制和融资应进入最高优先级。':warning?'客户验证、现金安全、回款或票据完整度尚未达到机构稳健标准。':'现金、费用和证据链暂未触发重大预警。';
- $('#dataFreshness').textContent=`DATA（数据） ${String(state.updatedAt||'').slice(0,16).replace('T',' ')}`;
+ const empty=!state.contracts.length&&!state.costItems.length&&!state.employees.length&&!state.shareholders.length;
+ $('#healthLabel').textContent=empty?'空库已就绪':s.score>=75?'经营基础较完整':s.score>=50?'存在待补项目':'关键经营数据不足';
+ $('#healthReason').textContent=empty?'请录入第一份合同、员工或成本，系统将自动形成财务结果。':`综合评分 ${Math.round(s.score)} 分；优先处理现金、逾期应收和资料完整度。`;
+ $('#dataFreshness').textContent=`更新 ${String(state.updatedAt||'').slice(0,16).replace('T',' ')}`;
+ const cashForm=$('#cashBalanceForm');
+ cashForm.elements.bankBalance.value=state.accounts.find(x=>x.id==='acc-bank')?.openingBalance||0;
+ cashForm.elements.cashBalance.value=state.accounts.find(x=>x.id==='acc-cash')?.openingBalance||0;
  const actions=[];
- if(f.runway<6)actions.push(['现金安全',`可用现金 ${money(f.availableCash)}，预计净消耗 ${money(f.projectedNetBurn)}，现金可支撑 ${f.runway.toFixed(1)} 个月。`,'CFO（首席财务官）']);
- if(customers<8)actions.push(['收入验证',`当前 ${customers} 个客户，单客户月均收入 ${money(avg)}；优先完成续费与效果核验。`,'CEO（首席执行官）']);
- if(f.openAR>0)actions.push(['回款执行',`未结清应收 ${money(f.openAR)}，DSO（应收账款周转天数）${f.dso===null?'待计算':`${f.dso.toFixed(0)} 天`}。`,'销售负责人']);
- if(f.committedReimbursements>0)actions.push(['报销负债',`待审核及待支付报销合计 ${money(f.committedReimbursements)}，已从可用现金中预留。`,'审批负责人']);
- if(f.ticketRate<95)actions.push(['票据合规',`票据完整度 ${pct(f.ticketRate)}，影响代账交接及机构尽调。`,'全员']);
- if(!actions.length)actions.push(['保持节奏','继续跟踪客户留存、毛利率、回款和获客效率。','管理层']);
- $('#managementActions').innerHTML=actions.slice(0,3).map((x,i)=>`<div class="action-item"><span class="action-index">0${i+1}</span><div><b>${x[0]}</b><p>${x[1]}</p></div><span>${x[2]}</span></div>`).join('');
- $('#operatingPulse').innerHTML=[
-  ['实际现金流入',money(f.monthIncome),'已发生客户回款'],
-  ['权责确认收入',money(f.monthAccruedRevenue),'已确认及已回款'],
-  ['合同月度收入',money(f.modeledIncome),'当前有效合同预算'],
-  ['现金流出',money(f.cashOutflow),'含已付成本及报销'],
-  ['权责成本',money(f.accrualExpense),'成本发生及报销审核口径'],
-  ['成本运行率',money(f.fixedCost),'当前月度预算成本'],
-  ['预计经营结果',money(f.operatingResult),'合同收入－成本－报销']
- ].map(x=>`<div class="pulse-row"><span>${x[0]}<small>${x[2]}</small></span><b>${x[1]}</b></div>`).join('');
- const form=$('#snapshotForm');
- [['customers',customers],['mrr',f.mrr],['employees',state.assumptions.employees],['grossMargin',f.grossMargin],['fixedCost',f.fixedCost],['fundingTarget',state.assumptions.fundingTarget]].forEach(([k,v])=>form.elements[k].value=v);
- renderProfessionalMetrics(f);
- const activity=[
-  ...state.transactions.map(x=>({date:x.date,item:x.type==='income'?'客户回款':x.type==='expense'?'公司支出':'融资流入',party:x.counterparty,amount:x.amount,out:x.type==='expense',impact:x.type==='expense'?'现金与费用已减少':'现金已增加'})),
-  ...state.incomeEntries.map(x=>({date:x.date,item:`收入：${x.category}`,party:x.customer,amount:x.amount,out:false,impact:x.status==='已回款'?'已确认收入并增加现金':x.status==='已确认'?'已确认收入，不增加现金':`${x.status}，不进入实际现金`})),
-  ...state.costItems.map(x=>({date:x.date,item:`成本：${x.name}`,party:x.counterparty||x.category,amount:costTotal(x),out:true,impact:x.status==='已支付'?'确认成本并减少现金':x.status==='已发生'?'确认成本并形成应付':`${x.status}，仅参与预算`})),
-  ...state.reimbursements.map(x=>({date:x.date,item:`报销：${x.description}`,party:x.applicant,amount:x.amount,out:true,impact:x.status==='待审核'?'降低可用现金':x.status==='已审核'?'计入费用与应付':x.status==='已支付'?'计入费用并减少现金':'不计入经营指标'}))
- ].sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,10);
- $('#recentActivityRows').innerHTML=activity.map(x=>`<tr><td>${x.date}</td><td>${esc(x.item)}</td><td>${esc(x.party)}</td><td class="${x.out?'amount-expense':'amount-income'}">${x.out?'-':'+'}${money(x.amount)}</td><td>${esc(x.impact)}</td></tr>`).join('');
+ if(!state.contracts.length)actions.push(['录入第一份合同','系统将自动生成月度收入和应收计划。','立即']);
+ if(f.overdue.length)actions.push(['催收逾期款',`${f.overdue.length} 笔逾期，合计 ${money(sum(f.overdue))}。`,'今日']);
+ if(!state.employees.length)actions.push(['建立员工工资表','工资、社保和公积金尚未进入成本预测。','本周']);
+ if(f.runway<6)actions.push(['现金安全',`现金可支撑 ${f.runway.toFixed(1)} 个月，应同步推进回款和融资。`,'高优先级']);
+ if(f.dataRoomRate<80)actions.push(['补齐融资资料室',`当前完成度 ${pct(f.dataRoomRate)}。`,'融资前']);
+ $('#managementActions').innerHTML=(actions.slice(0,5).map((x,i)=>`<div class="action-item"><span>0${i+1}</span><div><b>${x[0]}</b><p>${x[1]}</p></div><em>${x[2]}</em></div>`).join('')||'<div class="empty">暂无重大待办。</div>');
+ $('#sourceTrace').innerHTML=[
+  ['MRR',`${f.contracts.length} 份有效合同`,f.mrr],
+  ['人工成本',`${f.employees.length} 名在职员工`,f.payroll],
+  ['经营成本',`${f.costs.length} 个有效成本项目`,f.costBudget],
+  ['应收账款',`${f.openIncome.length} 笔未回款`,f.ar],
+  ['融资管线',`${f.pipeline.length} 家推进中机构`,f.weightedFunding],
+ ].map(x=>`<div class="trace-row"><span><b>${x[0]}</b><small>${x[1]}</small></span><strong>${money(x[2])}</strong></div>`).join('');
+ $('#compassGrade').textContent=`${Math.round(s.score)} 分`;
+ $('#compassDimensions').innerHTML=[['现金安全',s.cash],['收入验证',s.revenue],['成本与毛利',s.cost],['合规证据',s.compliance],['融资准备',s.funding]].map(x=>`<div class="dimension-row"><span>${x[0]}</span><div><i style="width:${Math.round(x[1])}%"></i></div><b>${Math.round(x[1])}</b></div>`).join('');
+ renderRevenuePlan();
+ $('#professionalMetrics').innerHTML=[
+  metric('ARR（年度经常性收入）',money(f.mrr*12),'MRR × 12'),
+  metric('毛利率',pct(f.grossMargin),'合同及直接成本口径'),
+  metric('DSO（应收周转天数）',f.dso===null?'待形成':`${f.dso.toFixed(0)} 天`,'应收 ÷ MRR × 30'),
+  metric('票据覆盖率',pct(f.evidenceRate),'成本及报销凭证'),
+  metric('融资管线覆盖',f.target?`${(f.weightedFunding/f.target).toFixed(1)} 倍`:'待设置目标','概率加权金额 ÷ 目标'),
+  metric('资料室完成度',pct(f.dataRoomRate),'尽职调查准备度')
+ ].join('');
+ $('#glossaryRows').innerHTML=glossary.map(x=>`<tr>${x.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('');
 }
 
-function compassModel(f){
- const cash=Math.max(0,Math.min(100,f.runway>=18?100:f.runway/18*100));
- const growth=Math.max(0,Math.min(100,(f.customerCount/20*45)+(f.mrr/300000*55)));
- const efficiency=Math.max(0,Math.min(100,(f.grossMargin/70*55)+((f.ltvCac||0)/3*45)));
- const compliance=Math.max(0,Math.min(100,f.ticketRate));
- const readiness=Math.max(0,Math.min(100,(f.customerCount/20*25)+(f.mrr*12/3000000*30)+(f.grossMargin/65*20)+((f.retention||0)/85*15)+((100-(f.concentration||50))/80*10)));
- const score=cash*.22+growth*.22+efficiency*.2+compliance*.16+readiness*.2;
- return{cash,growth,efficiency,compliance,readiness,score};
+function renderRevenuePlan(){
+ const months=Array.from({length:12},(_,i)=>{const d=new Date();d.setMonth(d.getMonth()+i);return d.toISOString().slice(0,7)});
+ const values=months.map(m=>sum(active(state.incomeEntries).filter(x=>String(x.date).startsWith(m))));
+ const max=Math.max(1,...values);
+ $('#revenuePlan').innerHTML=months.map((m,i)=>`<div class="bar-row"><span>${m}</span><div><i style="width:${values[i]/max*100}%"></i></div><b>${money(values[i])}</b></div>`).join('');
 }
-function renderCompass(f){
- const c=compassModel(f),grade=c.score>=80?'A / 可进入机构融资准备':c.score>=65?'B / 可启动融资预热':c.score>=50?'C / 先补经营证据':'D / 暂不适合机构融资';
- $('#compassScore').textContent=Math.round(c.score);
- $('#compassGrade').textContent=grade;
- $('#compassNeedle').style.transform=`rotate(${-120+c.score*2.4}deg)`;
- $('#compassDimensions').innerHTML=[['现金安全',c.cash],['增长验证',c.growth],['单位经济',c.efficiency],['财务合规',c.compliance],['融资准备',c.readiness]].map(x=>`<div class="dimension-row"><span>${x[0]}</span><div><i style="width:${x[1]}%"></i></div><b>${Math.round(x[1])}</b></div>`).join('');
- const channelScores=[
-  ['经营自筹',Math.min(100,45+f.grossMargin*.5+(f.runway>12?20:0)),'收入与毛利驱动'],
-  ['天使 / 种子',Math.min(100,40+c.growth*.35+c.readiness*.25),'团队与早期验证'],
-  ['VC（风险投资）',Math.min(100,c.growth*.35+c.efficiency*.3+c.readiness*.35),'高增长与可复制'],
-  ['产业资本',Math.min(100,45+(f.customerCount/20*20)+c.readiness*.25),'旅游与渠道协同'],
-  ['政府产业基金',Math.min(100,35+c.compliance*.25+c.readiness*.25+(f.customerCount>=10?15:0)),'区域落地与产业政策'],
-  ['银行 / 信贷',Math.min(100,15+(f.runway>12?15:0)+(f.mrr/500000*30)+c.compliance*.2),'稳定现金流与征信']
+
+function renderContracts(){
+ const f=derive(),contracts=active(state.contracts),q=$('#contractSearch').value.trim().toLowerCase();
+ const rows=contracts.filter(x=>`${x.customerName}${x.contractNo}${x.product}`.toLowerCase().includes(q));
+ $('#contractMetrics').innerHTML=[
+  metric('有效合同',f.contracts.length,'份'),
+  metric('MRR（月度经常性收入）',money(f.mrr),'合同月费合计'),
+  metric('应收账款',money(f.ar),`${f.openIncome.length} 笔`),
+  metric('逾期应收',money(sum(f.overdue)),`${f.overdue.length} 笔`,f.overdue.length?'risk':'good'),
+  metric('本月已回款',money(sum(f.received.filter(x=>String(x.date).startsWith(MONTH)))),'现金口径'),
+  metric('合同毛利率',pct(f.grossMargin),'预测口径')
+ ].join('');
+ $('#contractRows').innerHTML=rows.map(x=>`<tr>
+  <td><b>${esc(x.customerName)}</b><small>${esc(x.contractNo)}｜${esc(x.product)}</small></td>
+  <td>${x.startDate}<small>至 ${x.endDate||'-'}</small></td>
+  <td>${input('contracts',x.id,'monthlyFee',x.monthlyFee,'number')}</td>
+  <td>${input('contracts',x.id,'setupFee',x.setupFee,'number')}</td>
+  <td>${input('contracts',x.id,'directCost',x.directCost,'number')}</td>
+  <td>${input('contracts',x.id,'grossMargin',x.grossMargin,'number','compact')}%</td>
+  <td>${input('contracts',x.id,'paymentDays',x.paymentDays,'number','compact')}天</td>
+  <td>${select('contracts',x.id,'status',x.status,['待履约','履约中','待续约','暂停','已终止'])}</td>
+  <td><button class="danger-link" data-archive="contracts" data-id="${x.id}">归档</button></td>
+ </tr>`).join('')||'<tr><td colspan="9">尚未录入合同。请使用上方表单录入第一份正式合同。</td></tr>';
+ $('#customerOptions').innerHTML=[...new Set(contracts.map(x=>x.customerName))].map(x=>`<option value="${esc(x)}"></option>`).join('');
+ $('#contractOptions').innerHTML=contracts.map(x=>`<option value="${esc(x.contractNo)}"></option>`).join('');
+ $('#incomeCount').textContent=`${active(state.incomeEntries).length} 笔`;
+ $('#incomeRows').innerHTML=active(state.incomeEntries).sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(x=>`<tr>
+  <td>${input('incomeEntries',x.id,'date',x.date,'date','date')}<small>到期 ${x.dueDate||'-'}</small></td>
+  <td><b>${esc(x.customer)}</b><small>${esc(x.contractNo||'无合同编号')}</small></td>
+  <td>${input('incomeEntries',x.id,'amount',x.amount,'number')}</td>
+  <td>${select('incomeEntries',x.id,'status',x.status,['应收','已开票','已确认','已回款','已取消'])}</td>
+  <td>${input('incomeEntries',x.id,'invoiceNo',x.invoiceNo||'','text','text')}</td>
+  <td><button class="danger-link" data-archive="incomeEntries" data-id="${x.id}">归档</button></td>
+ </tr>`).join('')||'<tr><td colspan="6">暂无收入或回款计划。</td></tr>';
+ bindEditors();
+}
+
+function renderPeopleCosts(){
+ const f=derive(),employees=active(state.employees),costs=active(state.costItems),payrollRuns=active(state.payrollRuns);
+ $('#costMetrics').innerHTML=[
+  metric('在职员工',f.employees.length,'人'),
+  metric('月度人工成本',money(f.payroll),'工资＋公司承担项'),
+  metric('月度经营成本',money(f.costBudget),'不含人工'),
+  metric('直接交付成本',money(f.directOther+f.directContractCost),'影响毛利'),
+  metric('月度总成本',money(f.monthlyCost),'预测口径'),
+  metric('本月已支付成本',money(sum(costs.filter(x=>x.status==='已支付'),costTotal)),'现金口径')
+ ].join('');
+ $('#employeeCount').textContent=`${employees.length} 人`;
+ $('#employeeRows').innerHTML=employees.map(x=>`<tr>
+  <td>${input('employees',x.id,'name',x.name,'text','text')}</td>
+  <td>${input('employees',x.id,'role',x.role,'text','text')}<small>${esc(x.department||'-')}</small></td>
+  <td>${input('employees',x.id,'startDate',x.startDate,'date','date')}</td>
+  <td>${input('employees',x.id,'baseSalary',x.baseSalary,'number')}</td>
+  <td>${input('employees',x.id,'employerSocial',x.employerSocial,'number')}</td>
+  <td>${input('employees',x.id,'housingFund',x.housingFund,'number')}</td>
+  <td>${input('employees',x.id,'monthlyBonus',x.monthlyBonus,'number')}</td>
+  <td><b>${money(employeeCost(x))}</b></td>
+  <td>${select('employees',x.id,'status',x.status,['在职','待入职','离职'])}</td>
+  <td><button class="danger-link" data-archive="employees" data-id="${x.id}">归档</button></td>
+ </tr>`).join('')||'<tr><td colspan="10">尚未录入员工。</td></tr>';
+ $('#payrollCount').textContent=`${payrollRuns.length} 笔`;
+ $('#payrollRows').innerHTML=payrollRuns.map(x=>`<tr>
+  <td>${input('payrollRuns',x.id,'month',x.month,'month','date')}</td>
+  <td>${input('payrollRuns',x.id,'payDate',x.payDate||'','date','date')}</td>
+  <td>${input('payrollRuns',x.id,'amount',x.amount,'number')}</td>
+  <td>${select('payrollRuns',x.id,'status',x.status,['预算','已计提','已支付'])}</td>
+  <td>${input('payrollRuns',x.id,'notes',x.notes||'','text','text')}</td>
+  <td><button class="danger-link" data-archive="payrollRuns" data-id="${x.id}">归档</button></td>
+ </tr>`).join('')||'<tr><td colspan="6">暂无工资计提或发放记录。</td></tr>';
+ $('#costCount').textContent=`${costs.length} 项`;
+ $('#costRows').innerHTML=costs.map(x=>`<tr>
+  <td>${input('costItems',x.id,'name',x.name,'text','text')}</td><td>${esc(x.category)}</td>
+  <td>${input('costItems',x.id,'unitAmount',x.unitAmount,'number')}</td>
+  <td>${input('costItems',x.id,'quantity',x.quantity,'number','compact')}</td>
+  <td><b>${money(costTotal(x))}</b></td>
+  <td>${select('costItems',x.id,'frequency',x.frequency,['monthly','oneoff'])}</td>
+  <td>${select('costItems',x.id,'status',x.status,['预算','已发生','已支付','暂停'])}</td>
+  <td>${input('costItems',x.id,'invoiceNo',x.invoiceNo||'','text','text')}</td>
+  <td><button class="danger-link" data-archive="costItems" data-id="${x.id}">归档</button></td>
+ </tr>`).join('')||'<tr><td colspan="9">尚未录入经营成本。</td></tr>';
+ bindEditors();
+}
+
+function renderEquity(){
+ const f=derive(),holders=active(state.shareholders),rules=state.dividendRules;
+ $('#equityMetrics').innerHTML=[
+  metric('有效股东 / 持有人',holders.length,'人或机构'),
+  metric('总股份数',Number(f.totalShares).toLocaleString('zh-CN'),'股'),
+  metric('税后利润',money(rules.afterTaxProfit),'测算输入'),
+  metric('可分红池',money(f.dividendPool),'留存后 × 分红比例'),
+  metric('员工期权池',pct(rules.employeeEsop),'规则口径'),
+  metric('股权记录完整度',holders.length?'已建立':'待建立','Cap Table（股权结构表）',holders.length?'good':'risk')
+ ].join('');
+ const form=$('#dividendRulesForm');['afterTaxProfit','retentionReserveRate','pmfDividendRate','employeeEsop','founderPool','cofounderPool'].forEach(k=>form.elements[k].value=rules[k]??0);
+ $('#dividendPreview').innerHTML=`<b>当前测算</b><span>税后利润 ${money(rules.afterTaxProfit)}－留存 ${pct(rules.retentionReserveRate)}，按 ${pct(rules.pmfDividendRate)} 分红，可分红池为 ${money(f.dividendPool)}。</span>`;
+ $('#shareholderRows').innerHTML=holders.map(x=>{const ownership=f.totalShares?Number(x.shares||0)/f.totalShares*100:0;return `<tr>
+  <td>${input('shareholders',x.id,'name',x.name,'text','text')}</td>
+  <td>${select('shareholders',x.id,'role',x.role,['创始人','联合创始人','员工','机构股东','员工期权池'])}</td>
+  <td>${input('shareholders',x.id,'shares',x.shares,'number')}</td><td><b>${pct(ownership)}</b></td>
+  <td>${input('shareholders',x.id,'paidIn',x.paidIn,'number')}</td>
+  <td>${input('shareholders',x.id,'vestingYears',x.vestingYears||0,'number','compact')}年</td>
+  <td>${input('shareholders',x.id,'cliffMonths',x.cliffMonths||0,'number','compact')}月</td>
+  <td>${select('shareholders',x.id,'status',x.status,['有效','待生效','已退出'])}</td>
+  <td><button class="danger-link" data-archive="shareholders" data-id="${x.id}">归档</button></td>
+ </tr>`}).join('')||'<tr><td colspan="9">尚未录入股东或期权持有人。</td></tr>';
+ $('#dividendRows').innerHTML=holders.filter(x=>x.status==='有效').map(x=>{const ownership=f.totalShares?Number(x.shares||0)/f.totalShares*100:0;return `<tr><td>${esc(x.name)}</td><td>${pct(ownership)}</td><td><b>${money(f.dividendPool*ownership/100)}</b></td><td>公司决议后依法代扣代缴相关税费</td></tr>`}).join('')||'<tr><td colspan="4">录入有效股东并设置利润参数后生成建议。</td></tr>';
+ bindEditors();
+}
+
+function renderFundraising(){
+ const f=derive(),s=scoreModel(f),rounds=active(state.fundraisingRounds),pipeline=active(state.investorPipeline);
+ const coverage=f.target?f.weightedFunding/f.target:0;
+ $('#fundraisingMetrics').innerHTML=[
+  metric('目标融资额',money(f.target),f.currentRound?.name||'尚未建立轮次'),
+  metric('投前估值',money(f.preMoney),'融资情景输入'),
+  metric('预计稀释',pct(f.dilution),'融资额 ÷ 投后估值'),
+  metric('推进中机构',f.pipeline.length,'家'),
+  metric('概率加权金额',money(f.weightedFunding),`覆盖 ${coverage.toFixed(1)} 倍`),
+  metric('资料室完成度',pct(f.dataRoomRate),'尽调准备')
+ ].join('');
+ $('#fundingGrade').textContent=s.score>=75?'适合系统推进':s.score>=55?'适合融资预热':'先补经营证据';
+ const standards=[
+  ['有效合同',f.contracts.length,10,'份'],['ARR（年度经常性收入）',f.mrr*12,1000000,'元'],['毛利率',f.grossMargin,55,'%'],
+  ['现金安全期',Math.min(f.runway,24),6,'个月'],['资料室',f.dataRoomRate,80,'%'],['管线覆盖',coverage,1,'倍']
  ];
- $('#channelFit').innerHTML=channelScores.sort((a,b)=>b[1]-a[1]).map((x,i)=>`<div class="channel-row"><span><b>0${i+1}</b>${x[0]}<small>${x[2]}</small></span><div><i style="width:${Math.round(x[1])}%"></i></div><strong>${Math.round(x[1])}%</strong></div>`).join('');
+ $('#fundingReadiness').innerHTML=`<div class="standard-grid">${standards.map(x=>`<div class="standard-item ${x[1]>=x[2]?'pass':'gap'}"><span>${x[0]}</span><b>${x[3]==='元'?money(x[1]):`${Number(x[1]).toFixed(x[3]==='倍'?1:0)} ${x[3]}`}</b><small>建议标准：${x[3]==='元'?money(x[2]):`${x[2]} ${x[3]}`}</small></div>`).join('')}</div>`;
+ const rf=$('#fundingRoundForm');const target=Number(rf.elements.targetAmount.value||0),pre=Number(rf.elements.preMoneyValuation.value||0);
+ $('#dilutionPreview').innerHTML=`<b>融资稀释预览</b><span>${target&&pre?`投后估值 ${money(target+pre)}，新增投资人预计持股 ${pct(target/(target+pre)*100)}。`:'输入融资额和投前估值后自动计算。'}</span>`;
+ $('#investorRows').innerHTML=pipeline.map(x=>`<tr>
+  <td><b>${esc(x.institution)}</b><small>${esc(x.contact||'未填联系人')}</small></td>
+  <td>${esc(x.channel)}</td>
+  <td>${select('investorPipeline',x.id,'stage',x.stage,['待研究','待引荐','已接触','材料已发送','管理层会议','尽职调查','条款谈判','已关闭'])}</td>
+  <td>${input('investorPipeline',x.id,'probability',x.probability,'number','compact')}%</td>
+  <td>${input('investorPipeline',x.id,'ticket',x.ticket,'number')}</td>
+  <td>${input('investorPipeline',x.id,'nextDate',x.nextDate||'','date','date')}</td>
+  <td>${input('investorPipeline',x.id,'nextAction',x.nextAction||'','text','text')}</td>
+  <td><button class="danger-link" data-archive="investorPipeline" data-id="${x.id}">归档</button></td>
+ </tr>`).join('')||'<tr><td colspan="8">尚未建立融资机构管线。</td></tr>';
+ const interactions=active(state.investorInteractions).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+ $('#investorOptions').innerHTML=pipeline.map(x=>`<option value="${esc(x.institution)}"></option>`).join('');
+ $('#interactionCount').textContent=`${interactions.length} 条`;
+ $('#interactionRows').innerHTML=interactions.map(x=>`<tr><td>${x.date}</td><td><b>${esc(x.institution)}</b></td><td>${esc(x.type)}</td><td>${esc(x.summary)}</td><td>${esc(x.nextAction||'-')}<small>${x.nextDate||''}</small></td><td><button class="danger-link" data-archive="investorInteractions" data-id="${x.id}">归档</button></td></tr>`).join('')||'<tr><td colspan="6">暂无机构沟通记录。</td></tr>';
+ $('#dataRoomRows').innerHTML=(state.dataRoomChecklist||[]).map(x=>`<label class="check-row"><input type="checkbox" data-check-id="${x.id}" ${x.completed?'checked':''}><span><b>${esc(x.name)}</b><small>${esc(x.category)}</small></span></label>`).join('');
+ renderInvestorLibrary(f);
+ bindEditors();
+ $$('[data-check-id]').forEach(el=>el.onchange=async()=>{const r=await api('/api/update',{method:'POST',body:JSON.stringify({collection:'dataRoomChecklist',id:el.dataset.checkId,changes:{completed:el.checked,completedAt:el.checked?new Date().toISOString():''}})});state=r.state;renderAll();announce('资料室完成度已更新')});
 }
 
-function renderProfessionalMetrics(f){
- const priorDate=new Date();priorDate.setMonth(priorDate.getMonth()-1);const prior=priorDate.toISOString().slice(0,7);
- const priorIncome=sum(state.transactions.filter(x=>x.type==='income'&&x.date.startsWith(prior)))+sum(state.incomeEntries.filter(x=>x.status==='已回款'&&x.date.startsWith(prior)));
- const mom=priorIncome?((f.monthIncome-priorIncome)/priorIncome*100):null;
- const values=[
-  ['MRR（月度经常性收入）',money(f.mrr),'经营快照录入'],
-  ['ARR（年度经常性收入）',money(f.mrr*12),'MRR × 12'],
-  ['MoM Growth（月度环比增长率）',mom===null?'待录入':pct(mom),'需至少两个月收入'],
-  ['Gross Margin（毛利率）',pct(f.grossMargin),f.detailedCosts?'合同收入－直接交付成本':'当前管理层假设',f.grossMargin<50?'risk':'good'],
-  ['CAC（客户获取成本）',f.averageCac===null?'待录入':money(f.averageCac),'销售获客投入 ÷ 客户数',f.averageCac>15000?'risk':'good'],
-  ['LTV（客户终身价值）',f.ltv===null?'待录入':money(f.ltv),'客单价 × 毛利率 ÷ 流失率'],
-  ['LTV / CAC（价值成本比）',f.ltvCac===null?'待录入':`${f.ltvCac.toFixed(1)} 倍`,'低于 3 倍需关注',f.ltvCac<3?'risk':'good'],
-  ['Revenue Concentration（收入集中度）',f.concentration===null?'待录入':pct(f.concentration),'最大客户月费 ÷ MRR',f.concentration>30?'risk':'good'],
-  ['Accrued Expense（权责费用）',money(f.accrualExpense),'经营成本＋交易支出＋已审核/已支付报销'],
-  ['Accounts Payable（应付账款）',money(f.openAP),'贸易应付＋已审核报销'],
-  ['Committed Cash（承诺现金）',money(f.committedReimbursements+f.committedOperatingCosts),'成本预算/应付＋待审核/待支付报销'],
-  ['Burn Rate（现金消耗率）',money(f.cashBurn),'现金流出－现金流入',f.cashBurn>0?'risk':'good'],
-  ['Projected Net Burn（预计净消耗）',money(f.projectedNetBurn),'固定成本＋报销－月毛利',f.projectedNetBurn>0?'risk':'good'],
-  ['Runway（现金可支撑时间）',f.runway>=99?'现金净流入':`${f.runway.toFixed(1)} 个月`,'可用现金 ÷ 预计净消耗',f.runway<6?'risk':'good'],
-  ['DSO（应收账款周转天数）',f.dso===null?'待录入':`${f.dso.toFixed(0)} 天`,'应收 ÷ MRR × 30',f.dso>45?'risk':''],
-  ['Evidence Coverage（票据覆盖率）',pct(f.ticketRate),'有发票号码或附件的费用占比',f.ticketRate<90?'risk':'good']
- ];
- $('#professionalMetrics').innerHTML=values.map(x=>metric(x[0],x[1],x[2],x[3]||'')).join('');
- renderGlossary();
- $('#rulebookRows').innerHTML=rulebook.map(x=>`<tr><td>${esc(x[0])}</td><td>${esc(x[1])}</td><td>${esc(x[2])}</td><td>${esc(x[3])}</td><td>${esc(x[4])}</td></tr>`).join('');
-}
-function renderGlossary(){
- const q=($('#glossarySearch')?.value||'').trim().toLowerCase();
- $('#glossaryRows').innerHTML=glossary.filter(x=>!q||x.join(' ').toLowerCase().includes(q)).map(x=>`<tr><td>${esc(x[0])}</td><td>${esc(x[1])}</td><td>${esc(x[2])}</td><td>${esc(x[3])}</td><td>${esc(x[4])}</td></tr>`).join('');
-}
-
-function renderReimbursements(){
- const f=derive(),pending=sum(f.pendingClaims),approved=sum(f.approvedClaims),paidMonth=sum(f.paidClaims.filter(x=>String(x.date).startsWith(MONTH)));
- const missing=f.activeClaims.filter(x=>!claimHasTicket(x)).length;
- $('#reimbursementMetrics').innerHTML=[
-  metric('待审核',money(pending),'降低可用现金'),
-  metric('已审核待支付',money(approved),'计入费用与应付'),
-  metric('本月已支付',money(paidMonth),`缺票据 ${missing} 笔`,missing?'risk':'good')
- ].join('');
- $('#reimbursementCount').textContent=`${state.reimbursements.length} 笔记录`;
- $('#reimbursementRows').innerHTML=[...state.reimbursements].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(x=>`<tr><td>${x.date}</td><td><b>${esc(x.applicant)}</b><br><small>${esc(x.description)}｜${esc(x.payee)}</small></td><td class="amount-expense">${money(x.amount)}</td><td>${x.attachmentId?`<a href="/api/reimbursement-file/${x.attachmentId}">查看附件</a>`:x.invoiceNo?esc(x.invoiceNo):'<span class="badge risk">待补</span>'}</td><td><select data-reimbursement-status="${x.id}"><option ${x.status==='待审核'?'selected':''}>待审核</option><option ${x.status==='已审核'?'selected':''}>已审核</option><option ${x.status==='已支付'?'selected':''}>已支付</option><option ${x.status==='已驳回'?'selected':''}>已驳回</option></select></td></tr>`).join('')||'<tr><td colspan="5">暂无报销记录。</td></tr>';
- $$('[data-reimbursement-status]').forEach(el=>el.onchange=async()=>{
-  const changes={status:el.value,statusUpdatedAt:new Date().toISOString()};
-  if(el.value==='已支付')changes.paidAt=new Date().toISOString();
-  const r=await api('/api/update',{method:'POST',body:JSON.stringify({collection:'reimbursements',id:el.dataset.reimbursementStatus,changes})});
-  state=r.state;renderAll();broadcast(`报销状态变更为${el.value}`,'现金 / 费用 / 应付 / 代账 / 周报');toast('状态已更新，全部指标已重算');
- });
- renderReimbursementImpact();
-}
-
-function renderCustomers(){
- const f=derive(),rows=state.demoMode?state.demoCustomers:[],q=$('#customerSearch').value.trim().toLowerCase();
- const filtered=rows.filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
- $('#customerMetrics').innerHTML=[
-  metric('客户记录',rows.length,state.demoMode?`有效合同 ${f.customerCount} 家`:'已入账经营口径'),
-  metric('MRR（月度经常性收入）',money(f.mrr),'客户月费汇总'),
-  metric('ARPA（单客户月均收入）',money(f.arpa),'MRR ÷ 客户数'),
-  metric('加权毛利率',pct(f.grossMargin),'按客户月费加权'),
-  metric('平均 CAC（获客成本）',f.averageCac===null?'待录入':money(f.averageCac),'获客投入均值'),
-  metric('LTV / CAC（价值成本比）',f.ltvCac===null?'待录入':`${f.ltvCac.toFixed(1)} 倍`,'建议高于 3 倍',f.ltvCac<3?'risk':'good')
- ].join('');
- const groups=f.customers.reduce((o,x)=>(o[x.sector]=(o[x.sector]||0)+Number(x.mrr),o),{});
- const total=Object.values(groups).reduce((a,b)=>a+b,0)||1;
- $('#customerMix').innerHTML=Object.entries(groups).sort((a,b)=>b[1]-a[1]).map(([name,value])=>`<div class="mix-row"><span>${esc(name)}<small>${money(value)} / ${pct(value/total*100)}</small></span><div><i style="width:${value/total*100}%"></i></div></div>`).join('')||'<div class="brief">正式客户明细尚未录入。</div>';
- const risks=[];
- if((f.concentration||0)>30)risks.push(['客户集中度',`最大客户占 MRR（月度经常性收入）${pct(f.concentration)}，超过 30% 警戒线。`]);
- const lowRenewal=f.customers.filter(x=>Number(x.renewalProbability)<70).length;
- if(lowRenewal)risks.push(['续约风险',`${lowRenewal} 家客户续约概率低于 70%。`]);
- const slow=f.customers.filter(x=>Number(x.paymentDays)>=45).length;
- if(slow)risks.push(['回款风险',`${slow} 家客户合同账期达到 45 天。`]);
- if(!risks.length)risks.push(['结构正常','当前客户集中度、续费和回款未触发重大预警。']);
- $('#customerRisks').innerHTML=risks.map((x,i)=>`<div class="action-item"><span class="action-index">0${i+1}</span><div><b>${x[0]}</b><p>${x[1]}</p></div></div>`).join('');
- $('#customerRows').innerHTML=filtered.map(x=>`<tr><td><b>${esc(x.displayName||x.name)}</b></td><td>${esc(x.city)}<br><small>${esc(x.sector)}</small></td><td>${esc(x.product)}<br><small>${x.contractMonths||'-'}个月合同</small></td><td><input class="cell-input" data-customer-field="mrr" data-customer-id="${x.id}" type="number" min="0" value="${Number(x.mrr||0)}"></td><td><input class="cell-input percent" data-customer-field="grossMargin" data-customer-id="${x.id}" type="number" min="0" max="100" value="${Number(x.grossMargin||0)}"></td><td><input class="cell-input" data-customer-field="acquisitionCost" data-customer-id="${x.id}" type="number" min="0" value="${Number(x.acquisitionCost||0)}"></td><td><input class="cell-input compact" data-customer-field="paymentDays" data-customer-id="${x.id}" type="number" min="0" value="${Number(x.paymentDays||0)}"><small>${esc(x.paymentStatus||'正常')}${x.outstanding?` / 欠款${money(x.outstanding)}`:''}</small></td><td><input class="cell-input percent" data-customer-field="renewalProbability" data-customer-id="${x.id}" type="number" min="0" max="100" value="${Number(x.renewalProbability||0)}"></td><td><select class="cell-select" data-customer-field="status" data-customer-id="${x.id}">${['稳定续费','交付中','待续约','回款关注','暂停服务','已流失'].map(s=>`<option ${s===x.status?'selected':''}>${s}</option>`).join('')}</select></td></tr>`).join('')||'<tr><td colspan="9">尚未录入客户合同。</td></tr>';
- $$('[data-customer-field]').forEach(el=>el.onchange=()=>saveCustomerField(el));
- $('#toggleDemoMode').textContent=state.demoMode?'切换至已入账口径':'切换至经营规划口径';
- $('#demoBanner').innerHTML=state.demoMode?'<b>经营规划口径</b><span>客户合同及预算参与经营预测；暂停和流失客户不计入当前收入。</span>':'<b>已入账口径</b><span>当前仅使用已入账资金流水及正式经营参数。</span>';
- $('#demoBanner').classList.toggle('live',!state.demoMode);
- renderContractImpact();
-}
-async function saveCustomerField(el){
- const field=el.dataset.customerField,id=el.dataset.customerId;
- let value=field==='status'?el.value:Number(el.value||0);
- const changes={[field]:value};
- if(field==='status')changes.active=!['暂停服务','已流失'].includes(value);
- const r=await api('/api/update',{method:'POST',body:JSON.stringify({collection:'demoCustomers',id,changes})});
- state=r.state;renderAll();broadcast(`客户${field==='mrr'?'预算':field==='status'?'状态':'指标'}已调整`,'收入 / 毛利 / 现金预测 / 罗盘 / 融资');toast('已保存并重算全部指标');
-}
-
-function renderContractImpact(){
- const form=$('#contractForm'),mrr=Number(form.elements.mrr.value||0),setup=Number(form.elements.setupRevenue.value||0),months=Number(form.elements.contractMonths.value||0),margin=Number(form.elements.grossMargin.value||0);
- const total=mrr*months+setup,annual=mrr*12,grossProfit=total*margin/100;
- $('#contractImpact').innerHTML=`<b>合同联动预览</b><span>MRR（月度经常性收入）增加 ${money(mrr)}｜ARR（年度经常性收入）增加 ${money(annual)}｜合同总额 ${money(total)}｜预计合同毛利 ${money(grossProfit)}</span><small>保存后会联动客户模型、收入预测、毛利、Runway（现金可支撑时间）和投行资本适配雷达。</small>`;
-}
-
-function renderFinanceImpact(){
- const incomeForm=$('#incomeForm'),costForm=$('#costForm');
- const incomeAmount=Number(incomeForm.elements.amount.value||0),incomeStatus=incomeForm.elements.status.value;
- const unitAmount=Number(costForm.elements.unitAmount.value||0),quantity=Number(costForm.elements.quantity.value||0),costAmount=unitAmount*quantity,costStatus=costForm.elements.status.value;
- $('#incomeImpact').innerHTML=`<b>收入联动预览</b><span>金额 ${money(incomeAmount)}｜权责收入 ${['已确认','已回款'].includes(incomeStatus)?`增加 ${money(incomeAmount)}`:'暂不增加'}｜实际现金 ${incomeStatus==='已回款'?`增加 ${money(incomeAmount)}`:'暂不增加'}</span><small>合同预算和已开票只保留业务证据，不提前确认收入或现金。</small>`;
- $('#costImpact').innerHTML=`<b>成本联动预览</b><span>总成本 ${money(costAmount)}｜权责成本 ${['已发生','已支付'].includes(costStatus)?`增加 ${money(costAmount)}`:'暂不增加'}｜实际现金 ${costStatus==='已支付'?`减少 ${money(costAmount)}`:'暂不减少'}</span><small>每月固定成本会持续进入月度预算，终止日期后停止计算。</small>`;
-}
-
-function renderFinanceInputs(){
- const f=derive();
- $('#financeInputMetrics').innerHTML=[
-  metric('合同月度收入',money(f.modeledIncome),'客户合同预算'),
-  metric('本月确认收入',money(f.monthAccruedRevenue),'权责发生口径'),
-  metric('本月实际回款',money(f.monthIncome),'现金收付口径'),
-  metric('月度预算成本',money(f.monthBudgetCosts),'固定与单次成本'),
-  metric('本月权责成本',money(f.accrualExpense),'已发生及已支付'),
-  metric('本月现金流出',money(f.cashOutflow),'已付款成本及报销')
- ].join('');
- $('#customerOptions').innerHTML=state.demoCustomers.map(x=>`<option value="${esc(x.displayName||x.name)}"></option>`).join('');
- $('#incomeCount').textContent=`${state.incomeEntries.length} 笔`;
- $('#costCount').textContent=`${state.costItems.length} 笔`;
- $('#incomeRows').innerHTML=[...state.incomeEntries].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(x=>`<tr>
-  <td><input class="cell-input date" data-income-field="date" data-income-id="${x.id}" type="date" value="${esc(x.date)}"></td>
-  <td><input class="cell-input text" data-income-field="customer" data-income-id="${x.id}" value="${esc(x.customer)}"></td>
-  <td>${esc(x.contractNo||'-')}<br><small>${esc(x.category)}</small></td>
-  <td><input class="cell-input" data-income-field="amount" data-income-id="${x.id}" type="number" min="0" step="0.01" value="${Number(x.amount||0)}"></td>
-  <td><select class="cell-select" data-income-field="status" data-income-id="${x.id}">${['合同预算','已开票','已确认','已回款'].map(s=>`<option ${s===x.status?'selected':''}>${s}</option>`).join('')}</select></td>
-  <td><input class="cell-input text" data-income-field="invoiceNo" data-income-id="${x.id}" value="${esc(x.invoiceNo||'')}"></td>
- </tr>`).join('')||'<tr><td colspan="6">尚未录入收入明细。</td></tr>';
- $('#costRows').innerHTML=[...state.costItems].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(x=>`<tr>
-  <td><input class="cell-input date" data-cost-field="date" data-cost-id="${x.id}" type="date" value="${esc(x.date)}"></td>
-  <td><input class="cell-input text" data-cost-field="name" data-cost-id="${x.id}" value="${esc(x.name)}"><br><small>${esc(x.counterparty||'')}</small></td>
-  <td>${esc(x.category)}<br><small>${x.costNature==='direct'?'直接交付成本':'期间费用'}</small></td>
-  <td><input class="cell-input" data-cost-field="unitAmount" data-cost-id="${x.id}" type="number" min="0" step="0.01" value="${Number(x.unitAmount||0)}"></td>
-  <td><input class="cell-input compact" data-cost-field="quantity" data-cost-id="${x.id}" type="number" min="0.01" step="0.01" value="${Number(x.quantity||0)}"></td>
-  <td class="amount-expense">${money(costTotal(x))}</td>
-  <td><select class="cell-select" data-cost-field="frequency" data-cost-id="${x.id}"><option value="monthly" ${x.frequency==='monthly'?'selected':''}>每月固定</option><option value="oneoff" ${x.frequency==='oneoff'?'selected':''}>单次发生</option></select></td>
-  <td><select class="cell-select" data-cost-field="status" data-cost-id="${x.id}">${['预算','已发生','已支付','暂停'].map(s=>`<option ${s===x.status?'selected':''}>${s}</option>`).join('')}</select></td>
-  <td><input class="cell-input text" data-cost-field="invoiceNo" data-cost-id="${x.id}" value="${esc(x.invoiceNo||'')}"></td>
- </tr>`).join('')||'<tr><td colspan="9">尚未录入成本明细。</td></tr>';
- $$('[data-income-field]').forEach(el=>el.onchange=()=>saveLedgerField('incomeEntries',el,'income'));
- $$('[data-cost-field]').forEach(el=>el.onchange=()=>saveLedgerField('costItems',el,'cost'));
- renderFinanceImpact();
-}
-
-async function saveLedgerField(collection,el,prefix){
- const field=el.dataset[`${prefix}Field`],id=el.dataset[`${prefix}Id`];
- const numeric=['amount','unitAmount','quantity'].includes(field);
- const r=await api('/api/update',{method:'POST',body:JSON.stringify({collection,id,changes:{[field]:numeric?Number(el.value||0):el.value}})});
- state=r.state;renderAll();broadcast(`${collection==='incomeEntries'?'收入':'成本'}明细已调整`,'现金 / 权责损益 / 成本监控 / 代账 / 融资');toast('源数据已保存，全部指标已重算');
-}
-
-function formDividendRules(){
- const form=$('#dividendRulesForm'),keys=['founderPool','cofounderPool','employeeEsop','vestingYearsMin','vestingYearsMax','cliffMonths','pmfDividendRate','retentionReserveRate','afterTaxProfit','qualifiedFinancing','founderDeferredCompCap','financingBonusRate'];
- const r={...state.dividendRules};
- keys.forEach(k=>{if(form.elements[k])r[k]=Number(form.elements[k].value||0)});
- if(form.elements.leaverRepurchase)r.leaverRepurchase=form.elements.leaverRepurchase.value;
- return r;
-}
-function renderDividendRules(useForm=false){
- const f=derive(),form=$('#dividendRulesForm');
- const r=useForm?formDividendRules():f.dividendRules;
- if(!useForm)['founderPool','cofounderPool','employeeEsop','vestingYearsMin','vestingYearsMax','cliffMonths','pmfDividendRate','retentionReserveRate','afterTaxProfit','qualifiedFinancing','founderDeferredCompCap','financingBonusRate','leaverRepurchase'].forEach(k=>{if(form.elements[k])form.elements[k].value=r[k]});
- const poolTotal=Number(r.founderPool||0)+Number(r.cofounderPool||0)+Number(r.employeeEsop||0);
- const distributableProfit=Number(r.afterTaxProfit||0)*(1-Number(r.retentionReserveRate||0)/100);
- const dividendPool=Math.max(0,distributableProfit*Number(r.pmfDividendRate||0)/100);
- const financingCompPool=Math.min(Number(r.qualifiedFinancing||0)*Number(r.financingBonusRate||0)/100,Number(r.founderDeferredCompCap||0));
- const poolOk=Math.abs(poolTotal-100)<0.01;
- $('#dividendRuleMetrics').innerHTML=[
-  metric('Founder Pool（创始人池）',pct(Number(r.founderPool||0)),'无基本工资'),
-  metric('Co-founder Option Pool（联合创始人期权池）',pct(Number(r.cofounderPool||0)),'有基本工资'),
-  metric('Employee ESOP（员工期权池）',pct(Number(r.employeeEsop||0)),'未来员工激励'),
-  metric('池子合计',pct(poolTotal),'必须等于 100%',poolOk?'good':'risk'),
-  metric('PMF 分红池',money(dividendPool),'PMF 阶段默认可为 0'),
-  metric('融资补偿池',money(financingCompPool),'MIN（融资额 × 比例，上限）')
- ].join('');
- $('#dividendPoolRows').innerHTML=[
-  ['Founder Pool（创始人池）',r.founderPool,'无基本工资','控制权、融资、方向和核心责任'],
-  ['Co-founder Option Pool（联合创始人期权池）',r.cofounderPool,'有基本工资','PMF（产品市场匹配）验证、签约、交付、回款'],
-  ['Employee ESOP（员工期权池）',r.employeeEsop,'按岗位薪资','未来核心员工和关键岗位']
- ].map(x=>`<tr><td>${x[0]}</td><td><b>${pct(x[1])}</b></td><td>${x[2]}</td><td>${x[3]}</td></tr>`).join('');
- $('#dividendRuleBrief').textContent=[
-  `当前规则：Founder Pool（创始人池）${pct(r.founderPool)}，Co-founder Option Pool（联合创始人期权池）${pct(r.cofounderPool)}，Employee ESOP（员工期权池）${pct(r.employeeEsop)}。`,
-  `Vesting（归属期）：${r.vestingYearsMin} 至 ${r.vestingYearsMax} 年；Cliff（悬崖期）：${r.cliffMonths} 个月。`,
-  `分红：PMF（Product-Market Fit，产品市场匹配）阶段分红比例为 ${pct(r.pmfDividendRate)}，现金优先用于增长、交付和回款验证。`,
-  `融资补偿：Founder（创始人）无基本工资，可设置递延补偿；当前融资补偿池测算为 ${money(financingCompPool)}。`,
-  `离职安排：${r.leaverRepurchase}；已归属部分保留，未归属部分停止继续归属或按协议失效。`,
-  poolOk?'池子合计为 100%，可作为当前中台基础规则。':'注意：三大池子合计不是 100%，请先修正，否则后续融资表述会不严谨。'
- ].join('\n');
- $('#dividendRuleImpact').innerHTML=`<b>规则联动预览</b><span>池子合计 ${pct(poolTotal)}｜PMF 分红池 ${money(dividendPool)}｜融资补偿池 ${money(financingCompPool)}｜治理状态 ${poolOk?'合格':'需修正'}</span><small>保存后会进入投行资本适配雷达的 Governance（公司治理）与 Transaction Readiness（交易准备）评分。</small>`;
-}
-
-function capitalRadarModel(f){
- const rules=f.dividendRules||{},poolOk=Math.abs(f.poolTotal-100)<0.01,arr=f.mrr*12;
- const items=[
-  ['Revenue Scale（收入规模）',Math.min(100,arr/3000000*100),`ARR（年度经常性收入）${money(arr)}`,arr>=3000000?'可进入机构讨论':'先把 ARR 做到 100万至300万元区间'],
-  ['Growth Proof（增长验证）',Math.min(100,(f.customerCount/20*55)+((f.retention||0)/85*25)+(f.monthAccruedRevenue>0?20:0)),`客户 ${f.customerCount} 家，续约概率 ${pct(f.retention||0)}`,f.customerCount>=8?'可做融资预热':'先补足客户数量和续费证据'],
-  ['Revenue Quality（收入质量）',Math.min(100,((f.retention||0)/85*35)+((100-(f.concentration||50))/80*30)+(f.openAR>0?15:25)+(f.monthIncome>0?10:0)),`集中度 ${pct(f.concentration||0)}，回款 ${money(f.monthIncome)}`,f.monthIncome>0?'回款口径可展示':'要补实际回款和应收账龄'],
-  ['Unit Economics（单位经济）',Math.min(100,(f.grossMargin/65*45)+((f.ltvCac||0)/3*40)+(f.directCostRunRate>0?15:5)),`毛利率 ${pct(f.grossMargin)}，LTV/CAC（价值成本比）${f.ltvCac?f.ltvCac.toFixed(1):'待录入'} 倍`,f.grossMargin>=60?'毛利有资本故事':'需拆清交付成本和获客成本'],
-  ['Cash & Runway（现金安全期）',Math.min(100,(f.runway>=18?100:f.runway/18*85)+(f.availableCash>0?15:0)),`Runway（现金可支撑时间）${f.runway>=99?'净流入':`${f.runway.toFixed(1)}个月`}`,f.runway>=6?'可从容接触资本':'融资紧迫，需先控成本'],
-  ['Governance（公司治理）',Math.min(100,(f.ticketRate/95*35)+(poolOk?25:0)+(Number(rules.employeeEsop||0)>=8&&Number(rules.employeeEsop||0)<=15?15:0)+(Number(rules.cofounderPool||0)>=20?15:0)+(rules.leaverRepurchase==='无离职回购'?10:5)),`期权池 ${pct(rules.employeeEsop)}，联合创始人池 ${pct(rules.cofounderPool)}`,poolOk?'股权池口径清楚':'股权池合计需修正'],
-  ['Market Fit（市场与战略协同）',Math.min(100,55+(f.customerCount>=8?15:0)+(arr>=1000000?15:0)+(f.grossMargin>=55?15:0)),'入境游海外获客、数据、旅游和出海营销',f.customerCount>=8||arr>=1000000?'适合优先测试产业资本和旅游生态方':'赛道相关，但需要更多真实客户案例'],
-  ['Transaction Readiness（交易准备）',Math.min(100,(poolOk?20:0)+(arr/3000000*25)+(f.ticketRate/95*20)+(f.runway>=6?15:0)+(f.customerCount>=8?10:0)+(Number(rules.pmfDividendRate||0)<=20?10:0)),`票据覆盖率 ${pct(f.ticketRate)}，分红比例 ${pct(rules.pmfDividendRate||0)}`,Number(rules.pmfDividendRate||0)<=20?'分红纪律对机构友好':'分红比例偏高，会削弱增长叙事']
- ];
- const score=items.reduce((s,x)=>s+x[1],0)/items.length;
- return{items,score};
-}
-
-function renderCapitalRadar(f){
- const radar=capitalRadarModel(f),grade=radar.score>=80?'A / 可系统对接资本':radar.score>=65?'B / 可融资预热':radar.score>=50?'C / 先补关键指标':'D / 暂不建议正式路演';
- $('#capitalRadarGrade').textContent=`${Math.round(radar.score)} 分｜${grade}`;
- const sorted=[...radar.items].sort((a,b)=>a[1]-b[1]);
- $('#capitalRadar').innerHTML=`<div class="radar-bars">${radar.items.map(x=>`<div class="radar-score-row"><span>${x[0]}<small>${x[2]}</small></span><div><i style="width:${Math.round(x[1])}%"></i></div><b>${Math.round(x[1])}</b><em class="${x[1]>=70?'good':x[1]>=50?'warn':'risk'}">${x[3]}</em></div>`).join('')}</div><div class="radar-summary"><b>比较适合对接</b><p>${radar.items.filter(x=>x[1]>=70).map(x=>x[0].split('（')[0]).join('、')||'暂无强项，需要先补经营证据'}</p><b>暂不适合原因</b><p>${sorted.slice(0,3).map(x=>`${x[0].split('（')[0]}：${x[3]}`).join('；')}</p></div>`;
-}
-
-function renderReimbursementImpact(){
- const form=$('#reimbursementForm'),amount=Number(form.elements.amount.value||0);
- const hasTicket=Boolean(form.elements.invoiceNo.value||form.elements.file.files?.length);
- $('#reimbursementImpact').innerHTML=`<b>提交后的即时联动</b><span>可用现金 ${amount?`减少 ${money(amount)}`:'等待金额'}｜待审核报销 ${amount?`增加 ${money(amount)}`:'等待金额'}｜票据状态 ${hasTicket?'完整':'待补'}</span><small>实际现金不会在提交时减少；状态改为“已支付”后才扣减。</small>`;
+function renderInvestorLibrary(f){
+ const keyword=$('#investorKeyword').value,channel=$('#investorChannel').value;
+ const targets=(state.investorTargets||[]).filter(x=>(!keyword||x.focus.includes(keyword))&&(!channel||x.channel===channel)).map(x=>({...x,score:Math.max(35,Math.min(96,Math.round(Number(x.baseScore||70)+(f.dataRoomRate-50)*.1+(f.contracts.length>=8?4:0)-(f.mrr*12<500000&&x.channel==='财务投资'?8:0))))}));
+ $('#investorTargets').innerHTML=targets.sort((a,b)=>b.score-a.score).map(x=>`<div class="target-card"><header><b>${esc(x.name)}</b><span>${x.score}%</span></header><p>${esc(x.reason)}</p><footer>${esc(x.channel)}｜${esc(x.stage)} <a href="${esc(x.url)}" target="_blank" rel="noreferrer">官方资料</a></footer></div>`).join('')||'<div class="empty">当前筛选条件下暂无机构。</div>';
+ $('#fundingSignals').innerHTML=(state.fundingSignals||[]).map(x=>`<div class="target-card"><header><b>${esc(x.title)}</b></header><p>${esc(x.source||'公开来源')}｜${esc(x.date||'')}</p><footer>研究线索 <a href="${esc(x.link)}" target="_blank" rel="noreferrer">查看来源</a></footer></div>`).join('')||'<div class="empty">点击“更新公开融资信号”获取近期研究线索。</div>';
 }
 
 function accountingItems(month){
  return [
-  ...state.transactions.filter(x=>x.date.startsWith(month)).map(x=>({date:x.date,type:x.type==='income'?'收入':x.type==='expense'?'支出':'其他资金',party:x.counterparty,category:x.category,amount:x.amount,invoice:x.invoiceNo||'',attachment:evidenceFor(x.id),status:'已入账',recognized:true})),
-  ...state.incomeEntries.filter(x=>x.date.startsWith(month)).map(x=>({date:x.date,type:'客户收入',party:x.customer,category:x.category,amount:x.amount,invoice:x.invoiceNo||'',attachment:false,status:x.status,recognized:['已确认','已回款'].includes(x.status)})),
-  ...state.costItems.filter(x=>x.date.startsWith(month)||x.frequency==='monthly'&&monthContains(x,month)).map(x=>({date:x.date,type:'经营成本',party:x.counterparty||x.name,category:x.category,amount:costTotal(x),invoice:x.invoiceNo||'',attachment:false,status:x.status,recognized:['已发生','已支付'].includes(x.status)})),
-  ...state.reimbursements.filter(x=>x.date.startsWith(month)).map(x=>({date:x.date,type:'员工报销',party:`${x.applicant} / ${x.payee}`,category:x.category,amount:x.amount,invoice:x.invoiceNo||'',attachment:Boolean(x.attachmentId),status:x.status,recognized:['已审核','已支付'].includes(x.status)}))
- ].sort((a,b)=>a.date.localeCompare(b.date));
+  ...active(state.incomeEntries).filter(x=>String(x.date).startsWith(month)).map(x=>({date:x.date,type:'收入',party:x.customer,category:x.category,amount:x.amount,evidence:x.invoiceNo,status:x.status})),
+  ...active(state.costItems).filter(x=>String(x.date).startsWith(month)||x.frequency==='monthly'&&monthActive(x,month)).map(x=>({date:x.date,type:'成本',party:x.counterparty||x.name,category:x.category,amount:costTotal(x),evidence:x.invoiceNo,status:x.status})),
+  ...active(state.payrollRuns).filter(x=>x.month===month).map(x=>({date:x.payDate||`${x.month}-01`,type:'工资',party:'员工工资表',category:'工资及公司承担项',amount:x.amount,evidence:'工资表',status:x.status})),
+  ...active(state.reimbursements).filter(x=>String(x.date).startsWith(month)).map(x=>({date:x.date,type:'报销',party:x.applicant,category:x.category,amount:x.amount,evidence:x.invoiceNo||x.fileName,status:x.status}))
+ ].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
 }
 function renderAccounting(){
- const month=$('#accountingMonth').value||MONTH,items=accountingItems(month);
- const income=sum(items.filter(x=>['收入','客户收入'].includes(x.type)&&x.recognized));
- const recognizedCost=sum(items.filter(x=>!['收入','客户收入'].includes(x.type)&&x.recognized));
- const pendingCost=sum(items.filter(x=>(x.type==='员工报销'&&x.status==='待审核')||(x.type==='经营成本'&&x.status==='预算')));
- const missing=items.filter(x=>!['收入','客户收入'].includes(x.type)&&x.recognized&&!x.invoice&&!x.attachment&&x.status!=='已驳回');
+ const f=derive(),month=$('#accountingMonth').value||MONTH,items=accountingItems(month);
  $('#accountingMetrics').innerHTML=[
-  metric('收入',money(income),'当月资金流水'),
-  metric('已入账费用',money(recognizedCost),'含已审核报销'),
-  metric('待审核费用',money(pendingCost),'暂不入账'),
-  metric('交接记录',items.length,'笔'),
-  metric('缺票据',missing.length,'笔',missing.length?'risk':'good'),
-  metric('票据完整度',pct(items.length?(items.length-missing.length)/items.length*100:100),'代账口径')
+  metric('当月收入记录',money(sum(items.filter(x=>x.type==='收入'))),'计划及实际'),
+  metric('当月成本记录',money(sum(items.filter(x=>x.type==='成本'))),'经营成本'),
+  metric('报销金额',money(sum(items.filter(x=>x.type==='报销'))),'全部状态'),
+  metric('待审核报销',money(sum(f.pendingClaims)),'降低可用现金'),
+  metric('缺少票据',items.filter(x=>['成本','报销'].includes(x.type)&&!x.evidence).length,'笔'),
+  metric('票据覆盖率',pct(f.evidenceRate),'代账与尽调口径')
  ].join('');
- $('#missingAccounting').innerHTML=missing.map((x,i)=>`<div class="issue-item"><span class="action-index">0${i+1}</span><div><b>${esc(x.party)}｜${money(x.amount)}</b><p>${x.date} ${esc(x.category)}：缺发票号码或附件。</p></div><span class="badge risk">待补</span></div>`).join('')||'<div class="brief">本月应入账费用均已留存发票号码或附件。</div>';
- $('#accountingNote').textContent=`交接月份：${month}\n收入：${money(income)}\n已入账费用：${money(recognizedCost)}\n待审核费用：${money(pendingCost)}\n缺少票据：${missing.length} 笔\n\n报销口径：待审核不入账；已审核计入费用及应付；已支付计入费用并减少现金；已驳回仅保留审计记录。`;
+ $('#reimbursementCount').textContent=`${active(state.reimbursements).length} 笔`;
+ $('#reimbursementRows').innerHTML=active(state.reimbursements).map(x=>`<tr><td>${x.date}</td><td><b>${esc(x.applicant)}</b><small>${esc(x.description)}｜${esc(x.payee)}</small></td><td>${money(x.amount)}</td><td>${x.attachmentId?`<a href="/api/reimbursement-file/${x.attachmentId}">查看附件</a>`:esc(x.invoiceNo||'待补')}</td><td>${select('reimbursements',x.id,'status',x.status,['待审核','已审核','已支付','已驳回'])}</td><td><button class="danger-link" data-archive="reimbursements" data-id="${x.id}">归档</button></td></tr>`).join('')||'<tr><td colspan="6">暂无报销记录。</td></tr>';
  $('#accountingRowCount').textContent=`${items.length} 笔`;
- $('#accountingRows').innerHTML=items.map(x=>`<tr><td>${x.date}</td><td>${x.type}</td><td>${esc(x.party)}</td><td>${esc(x.category)}</td><td>${money(x.amount)}</td><td>${esc(x.invoice)||'-'}</td><td><span class="badge ${x.attachment?'good':'warn'}">${x.status}</span></td></tr>`).join('')||'<tr><td colspan="7">该月份暂无数据。</td></tr>';
+ $('#accountingRows').innerHTML=items.map(x=>`<tr><td>${x.date}</td><td>${x.type}</td><td>${esc(x.party)}</td><td>${esc(x.category)}</td><td>${money(x.amount)}</td><td>${esc(x.evidence||'待补')}</td><td>${x.status}</td></tr>`).join('')||'<tr><td colspan="7">该月份暂无交接数据。</td></tr>';
+ bindEditors();
 }
 
-function renderFundraising(){
- const f=derive(),targets=state.investorTargets||[],signals=state.fundingSignals||[];
- const contacted=state.investors.filter(x=>x.stage&&x.stage!=='待接触'&&x.stage!=='已关闭').length;
- const compass=compassModel(f),keyword=$('#investorKeyword').value,channel=$('#investorChannel').value;
- const scored=targets.map(x=>{
-  let score=Number(x.baseScore||70);
-  score+=(compass.readiness-50)*.18;
-  if(x.channel==='产业资本'&&f.customerCount>=10)score+=5;
-  if(x.channel==='财务投资'&&f.mrr*12<1000000)score-=8;
-  if(x.channel==='政府产业基金'&&f.ticketRate>=90)score+=4;
-  return{...x,score:Math.max(35,Math.min(96,Math.round(score)))};
- }).filter(x=>(!keyword||x.focus.includes(keyword))&&(!channel||x.channel===channel));
- $('#fundraisingMetrics').innerHTML=[
-  metric('高匹配候选',scored.filter(x=>x.score>=80).length,'家'),
-  metric('已开始接触',contacted,'家'),
-  metric('最新融资信号',signals.length,'条'),
-  metric('客户验证',state.operating.customers,'签约客户',state.operating.customers<8?'risk':'good'),
-  metric('ARR（年度经常性收入）',money(f.mrr*12),'MRR × 12'),
- metric('Runway（现金可支撑时间）',f.runway>=99?'现金净流入':`${f.runway.toFixed(1)} 个月`,'融资紧迫度',f.runway<6?'risk':'good')
- ].join('');
- const standards=[
-  ['客户验证',f.customerCount,20,'家',f.customerCount>=20],
-  ['ARR（年度经常性收入）',f.mrr*12,3000000,'元',f.mrr*12>=3000000],
-  ['毛利率',f.grossMargin,60,'%',f.grossMargin>=60],
-  ['续约概率',f.retention||0,80,'%',(f.retention||0)>=80],
-  ['LTV / CAC（价值成本比）',f.ltvCac||0,3,'倍',(f.ltvCac||0)>=3],
-  ['票据覆盖率',f.ticketRate,90,'%',f.ticketRate>=90]
- ];
- const passed=standards.filter(x=>x[4]).length;
- const status=passed>=5?'适合启动天使轮或产业资本融资':passed>=3?'适合融资预热，先补关键指标':'暂不适合正式机构融资，优先验证经营模型';
- $('#fundingReadiness').innerHTML=`<div class="readiness-summary"><strong>${status}</strong><span>达标 ${passed} / ${standards.length} 项｜规则罗盘 ${Math.round(compass.score)} 分</span></div><div class="standard-grid">${standards.map(x=>`<div class="standard-item ${x[4]?'pass':'gap'}"><span>${x[0]}</span><b>${typeof x[1]==='number'&&x[3]==='元'?money(x[1]):`${Number(x[1]).toFixed(x[3]==='倍'?1:0)} ${x[3]}`}</b><small>标准：${x[3]==='元'?money(x[2]):`${x[2]} ${x[3]}`}</small></div>`).join('')}</div>`;
- renderCapitalRadar(f);
- const dimensions=[
-  ['Growth Profile（增长画像）',`客户 ${f.customerCount} 家，ARR（年度经常性收入）${money(f.mrr*12)}`,'关注月度增长、有效客户增长及收入可持续性'],
-  ['Revenue Quality（收入质量）',`续约概率 ${pct(f.retention||0)}，集中度 ${pct(f.concentration||0)}`,'关注经常性收入、客户集中、合同期限和回款质量'],
-  ['Unit Economics（单位经济）',`毛利率 ${pct(f.grossMargin)}，LTV/CAC（价值成本比）${f.ltvCac?f.ltvCac.toFixed(1):'待录入'} 倍`,'关注获客成本、回收期、客户终身价值和交付边际成本'],
-  ['Cash & Runway（现金与安全期）',`可用现金 ${money(f.availableCash)}，Runway（现金可支撑时间）${f.runway>=99?'净流入':`${f.runway.toFixed(1)}个月`}`,'决定融资时间窗口、金额和成本控制强度'],
-  ['Defensibility（竞争壁垒）','需补充数据资产、技术产权及渠道排他性','判断业务是可复制产品还是人力密集型服务'],
-  ['Governance（公司治理）',`票据覆盖率 ${pct(f.ticketRate)}`,'关注股权、合同、税务、数据合规和管理层报告质量'],
-  ['Exit Path（退出路径）','产业并购优先于独立上市预期','潜在买方包括旅游平台、营销科技及企业服务公司'],
-  ['Transaction Terms（交易条款）','根据融资阶段另行测算','包括估值、稀释、清算优先权、董事席位及反稀释条款']
- ];
- $('#investmentDimensions').innerHTML=`<div class="dimension-grid">${dimensions.map(x=>`<div class="dimension-card"><span>${x[0]}</span><b>${x[1]}</b><p>${x[2]}</p></div>`).join('')}</div>`;
- $('#targetUpdatedAt').textContent=`核验 ${state.investorScoutUpdatedAt?.slice(0,10)||'本地候选库'}`;
- $('#signalUpdatedAt').textContent=state.investorScoutUpdatedAt?`更新 ${state.investorScoutUpdatedAt.slice(0,16).replace('T',' ')}`:'尚未联网更新';
- $('#investorTargets').innerHTML=scored.sort((a,b)=>b.score-a.score).map(x=>`<div class="target-card"><header><h3>${esc(x.name)}</h3><span class="badge ${x.score>=80?'good':'warn'}">${x.score}%</span></header><p>${esc(x.reason)}</p><footer><span>${esc(x.focus.join(' / '))}｜${esc(x.channel)}｜${esc(x.stage)}</span><a href="${esc(x.url)}" target="_blank" rel="noreferrer">官方资料</a></footer></div>`).join('')||'<div class="brief">当前筛选条件下暂无机构。</div>';
- $('#fundingSignals').innerHTML=signals.map(x=>`<div class="signal-card"><header><h3>${esc(x.title)}</h3></header><p>${esc(x.source||'公开新闻')}｜${esc(x.date||'')}</p><footer><span>公开市场信号，不等同投资邀约</span><a href="${esc(x.link)}" target="_blank" rel="noreferrer">来源</a></footer></div>`).join('')||'<div class="brief">点击“联网更新融资信号”扫描近期公开融资新闻。</div>';
- const actions=[
-  ['可融资证据',`当前 ARR（年度经常性收入）${money(f.mrr*12)}、客户 ${f.customerCount} 家；优先补齐续费、毛利和获客成本底稿。`,'融资前置条件'],
-  ['产业协同','优先接触能提供旅游渠道、海外流量或旅行社资源的产业方。','优先级一'],
-  ['触达节奏','每周新增 5 家目标机构、获得 2 次有效引荐、完成 1 次正式沟通。','持续执行']
- ];
- $('#fundraisingActions').innerHTML=actions.map((x,i)=>`<div class="action-item"><span class="action-index">0${i+1}</span><div><b>${x[0]}</b><p>${x[1]}</p></div><span>${x[2]}</span></div>`).join('');
+function bindEditors(){
+ $$('[data-edit]').forEach(el=>el.onchange=async()=>{
+  const numeric=el.type==='number',value=numeric?Number(el.value||0):el.value;
+  const collection=el.dataset.edit,id=el.dataset.id,field=el.dataset.field;
+  const path=collection==='contracts'?'/api/contract-update':'/api/update';
+  const body=collection==='contracts'?{id,changes:{[field]:value}}:{collection,id,changes:{[field]:value}};
+  try{const r=await api(path,{method:'POST',body:JSON.stringify(body)});state=r.state;renderAll();announce('数据已保存，相关指标已重算')}catch(e){toast('保存失败：'+e.message)}
+ });
+ $$('[data-archive]').forEach(el=>el.onclick=async()=>{
+  if(el.dataset.ready!=='yes'){el.dataset.ready='yes';el.textContent='再次点击确认';setTimeout(()=>{el.dataset.ready='';el.textContent='归档'},2500);return}
+  const collection=el.dataset.archive,id=el.dataset.id;
+  const changes=collection==='contracts'?{status:'已归档',archived:true}:{archived:true,status:'已归档'};
+  const path=collection==='contracts'?'/api/contract-update':'/api/update';
+  const body=collection==='contracts'?{id,changes}:{collection,id,changes};
+  const r=await api(path,{method:'POST',body:JSON.stringify(body)});state=r.state;renderAll();announce('记录已归档并保留审计痕迹');
+ });
 }
 
-function renderAll(){
- renderDashboard();renderCustomers();renderFinanceInputs();renderDividendRules();renderReimbursements();renderAccounting();renderFundraising();
- $('#lastSaved').textContent=`SAVE（保存） ${String(state.updatedAt||'').slice(0,16).replace('T',' ')}`;
-}
-async function load(){state=await api('/api/state');normalize();$('#statusDot').parentElement.classList.add('connected');$('#serverStatus').textContent='LOCAL DATA（本地数据）';renderAll()}
-const titles={dashboard:'经营总览',customers:'客户模型',financeInputs:'收支成本',dividendRules:'分红规则',reimbursements:'报销票据',accounting:'代账交接',fundraising:'融资雷达'};
-function showView(id){$$('.view').forEach(x=>x.classList.toggle('active',x.id===id));$$('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.view===id));$('#viewTitle').textContent=titles[id];$('#actionSignal').textContent=`已切换至 ${titles[id]}｜数据口径保持同步`;scrollTo(0,0)}
-$$('#nav button').forEach(b=>b.onclick=()=>showView(b.dataset.view));
+function renderAll(){renderDashboard();renderContracts();renderPeopleCosts();renderEquity();renderFundraising();renderAccounting();$('#lastSaved').textContent=`保存 ${String(state.updatedAt||'').slice(0,16).replace('T',' ')}`}
+async function load(){state=await api('/api/state');normalize();$('.server-status').classList.add('connected');$('#serverStatus').textContent='本地数据已连接';renderAll()}
+const titles={dashboard:'经营驾驶舱',contracts:'合同与回款',peopleCosts:'成本与工资',equity:'股权与分红',fundraising:'融资执行',accounting:'报销与代账'};
+function showView(id){$$('.view').forEach(x=>x.classList.toggle('active',x.id===id));$$('#nav button').forEach(x=>x.classList.toggle('active',x.dataset.view===id));$('#viewTitle').textContent=titles[id];scrollTo(0,0)}
+$$('#nav button').forEach(x=>x.onclick=()=>showView(x.dataset.view));
+$$('[data-go]').forEach(x=>x.onclick=()=>{showView(x.dataset.go);setTimeout(()=>document.getElementById(x.dataset.focus)?.scrollIntoView({behavior:'smooth',block:'start'}),50)});
 $('#todayLabel').textContent=`${TODAY} / FUTUREFLOW FINANCE OS（财务操作系统）`;
-$('#accountingMonth').value=MONTH;$('#reimbursementForm [name=date]').value=TODAY;$('#contractForm [name=startDate]').value=TODAY;$('#incomeForm [name=date]').value=TODAY;$('#costForm [name=date]').value=TODAY;
-$('#snapshotForm').onsubmit=async e=>{
- e.preventDefault();const v=Object.fromEntries(new FormData(e.target));Object.keys(v).forEach(k=>v[k]=Number(v[k]));
- state.operating={...state.operating,customers:v.customers,mrr:v.mrr};
- state.assumptions={...state.assumptions,employees:v.employees,grossMargin:v.grossMargin,fixedCost:v.fixedCost,fundingTarget:v.fundingTarget};
- await api('/api/object',{method:'POST',body:JSON.stringify({key:'operating',value:state.operating})});
- const r=await api('/api/object',{method:'POST',body:JSON.stringify({key:'assumptions',value:state.assumptions})});
- state=r.state;renderAll();broadcast('经营参数已保存','罗盘 / 指标 / 融资 / 周报');toast('经营参数已保存，全部指标已重算');
-};
-$('#reimbursementForm').oninput=renderReimbursementImpact;
-$('#reimbursementForm').onchange=renderReimbursementImpact;
-$('#reimbursementForm').onsubmit=async e=>{
- e.preventDefault();const r=await api('/api/reimbursement',{method:'POST',body:new FormData(e.target)});
- state=r.state;renderAll();broadcast('报销已录入','现金 / 费用 / 应付 / 代账 / 周报');e.target.reset();e.target.elements.date.value=TODAY;renderReimbursementImpact();toast('报销已录入，全部指标已联动');
-};
-$('#contractForm').oninput=renderContractImpact;
-$('#contractForm').onchange=renderContractImpact;
-$('#contractForm').onsubmit=async e=>{
- e.preventDefault();
- const v=Object.fromEntries(new FormData(e.target));
- ['mrr','setupRevenue','grossMargin','acquisitionCost','contractMonths','paymentDays','renewalProbability'].forEach(k=>v[k]=Number(v[k]||0));
- const start=new Date(`${v.startDate}T00:00:00`);start.setMonth(start.getMonth()+v.contractMonths);
- v.id=`customer-${Date.now().toString(36)}`;v.name=v.displayName;v.source='经营录入';v.paymentStatus='正常';v.outstanding=0;v.status='交付中';v.active=true;v.isDemo=true;v.endDate=start.toISOString().slice(0,10);
- const r=await api('/api/item',{method:'POST',body:JSON.stringify({collection:'demoCustomers',item:v})});
- state=r.state;renderAll();broadcast('新合同已保存','客户 / MRR / ARR / 毛利 / 现金预测 / 罗盘 / 融资');e.target.reset();e.target.elements.startDate.value=TODAY;e.target.elements.contractMonths.value=12;e.target.elements.grossMargin.value=60;e.target.elements.renewalProbability.value=80;renderContractImpact();toast('合同已保存并联动全部指标');
-};
-$('#incomeForm').oninput=renderFinanceImpact;
-$('#incomeForm').onchange=renderFinanceImpact;
-$('#costForm').oninput=renderFinanceImpact;
-$('#costForm').onchange=renderFinanceImpact;
-$('#incomeForm').onsubmit=async e=>{
- e.preventDefault();const v=Object.fromEntries(new FormData(e.target));v.amount=Number(v.amount||0);v.id=`income-${Date.now().toString(36)}`;v.createdAt=new Date().toISOString();
- const r=await api('/api/item',{method:'POST',body:JSON.stringify({collection:'incomeEntries',item:v})});
- state=r.state;renderAll();broadcast('收入已录入','收入确认 / 实际现金 / 利润 / 代账 / 融资');e.target.reset();e.target.elements.date.value=TODAY;e.target.elements.status.value='合同预算';renderFinanceImpact();toast('收入已保存，全部指标已联动');
-};
-$('#costForm').onsubmit=async e=>{
- e.preventDefault();const v=Object.fromEntries(new FormData(e.target));v.unitAmount=Number(v.unitAmount||0);v.quantity=Number(v.quantity||1);v.id=`cost-${Date.now().toString(36)}`;v.createdAt=new Date().toISOString();
- const r=await api('/api/item',{method:'POST',body:JSON.stringify({collection:'costItems',item:v})});
- state=r.state;renderAll();broadcast('成本已录入','成本运行率 / 毛利 / 实际现金 / Runway（现金可支撑时间）/ 代账');e.target.reset();e.target.elements.date.value=TODAY;e.target.elements.quantity.value=1;e.target.elements.status.value='预算';e.target.elements.frequency.value='monthly';renderFinanceImpact();toast('成本已保存，全部指标已联动');
-};
-$('#dividendRulesForm').oninput=()=>renderDividendRules(true);
-$('#dividendRulesForm').onchange=()=>renderDividendRules(true);
-$('#dividendRulesForm').onsubmit=async e=>{
- e.preventDefault();
- const v=Object.fromEntries(new FormData(e.target));
- ['founderPool','cofounderPool','employeeEsop','vestingYearsMin','vestingYearsMax','cliffMonths','pmfDividendRate','retentionReserveRate','afterTaxProfit','qualifiedFinancing','founderDeferredCompCap','financingBonusRate'].forEach(k=>v[k]=Number(v[k]||0));
- const r=await api('/api/object',{method:'POST',body:JSON.stringify({key:'dividendRules',value:v})});
- state=r.state;renderAll();broadcast('分红规则已保存','分红规则 / 公司治理 / 投行雷达 / 融资准备度');toast('分红规则已保存，资本适配雷达已重算');
-};
-$('[data-jump-view="customers"]').onclick=()=>showView('customers');
-$$('[data-jump-view]').forEach(b=>b.onclick=()=>{showView(b.dataset.jumpView);const formId=b.dataset.focusForm;if(formId)setTimeout(()=>document.getElementById(formId)?.scrollIntoView({behavior:'smooth',block:'center'}),60)});
+$('#accountingMonth').value=MONTH;
+['contractForm','incomeForm','employeeForm','costForm','shareholderForm','fundingRoundForm','reimbursementForm','payrollForm','interactionForm'].forEach(id=>{const form=$('#'+id);['date','signDate','startDate','grantDate'].forEach(k=>{if(form?.elements[k]&&!form.elements[k].value)form.elements[k].value=TODAY})});
+$('#payrollForm').elements.month.value=MONTH;
+
+$('#contractForm').oninput=()=>{const v=Object.fromEntries(new FormData($('#contractForm'))),months=Number(v.contractMonths||0),total=Number(v.monthlyFee||0)*months+Number(v.setupFee||0);$('#contractImpact').innerHTML=`<b>保存后联动</b><span>合同总额约 ${money(total)}，自动生成 ${months+(Number(v.setupFee||0)>0?1:0)} 笔收入及应收计划。</span>`};
+$('#contractForm').onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));['contractMonths','monthlyFee','setupFee','directCost','grossMargin','paymentDays','taxRate'].forEach(k=>v[k]=Number(v[k]||0));const r=await api('/api/contract',{method:'POST',body:JSON.stringify({item:v})});state=r.state;e.target.reset();e.target.elements.signDate.value=TODAY;e.target.elements.startDate.value=TODAY;e.target.elements.contractMonths.value=12;renderAll();announce('合同已保存，应收计划已自动生成')};
+$('#incomeForm').onsubmit=e=>submitItem(e,'incomeEntries',['amount'],'收入记录已保存');
+$('#employeeForm').onsubmit=e=>submitItem(e,'employees',['baseSalary','employerSocial','housingFund','monthlyBonus','vestingYears','cliffMonths'],'员工已保存，人工成本已联动');
+$('#payrollForm').onsubmit=e=>submitItem(e,'payrollRuns',['amount'],'工资记录已保存，现金与应付已联动');
+$('#costForm').onsubmit=e=>submitItem(e,'costItems',['unitAmount','quantity'],'成本已保存，现金预测已联动');
+$('#shareholderForm').onsubmit=e=>submitItem(e,'shareholders',['shares','paidIn','vestingYears','cliffMonths'],'股东名册已更新');
+$('#fundingRoundForm').oninput=renderFundraising;
+$('#fundingRoundForm').onsubmit=e=>submitItem(e,'fundraisingRounds',['targetAmount','preMoneyValuation','actualAmount'],'融资轮次已建立');
+$('#investorForm').onsubmit=e=>submitItem(e,'investorPipeline',['probability','ticket'],'机构已加入融资管线');
+$('#interactionForm').onsubmit=e=>submitItem(e,'investorInteractions',[],'机构沟通记录已保存');
+async function submitItem(e,collection,numeric,message){e.preventDefault();const form=e.target,v=Object.fromEntries(new FormData(form));numeric.forEach(k=>{if(k in v)v[k]=Number(v[k]||0)});const r=await api('/api/item',{method:'POST',body:JSON.stringify({collection,item:v})});state=r.state;form.reset();if(form.elements.date)form.elements.date.value=TODAY;if(form.elements.startDate)form.elements.startDate.value=TODAY;if(form.elements.month)form.elements.month.value=MONTH;if(form.elements.quantity)form.elements.quantity.value=1;renderAll();announce(message)}
+$('#dividendRulesForm').onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));Object.keys(v).forEach(k=>v[k]=Number(v[k]||0));const r=await api('/api/object',{method:'POST',body:JSON.stringify({key:'dividendRules',value:v})});state=r.state;renderAll();announce('分红规则已保存')};
+$('#cashBalanceForm').onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(e.target));for(const [id,value] of [['acc-bank',v.bankBalance],['acc-cash',v.cashBalance]]){const r=await api('/api/update',{method:'POST',body:JSON.stringify({collection:'accounts',id,changes:{openingBalance:Number(value||0)}})});state=r.state}renderAll();announce('账户期初余额已保存')};
+$('#reimbursementForm').onsubmit=async e=>{e.preventDefault();const r=await api('/api/reimbursement',{method:'POST',body:new FormData(e.target)});state=r.state;e.target.reset();e.target.elements.date.value=TODAY;renderAll();announce('报销已提交并进入审批台账')};
+$('#contractSearch').oninput=renderContracts;
 $('#accountingMonth').onchange=renderAccounting;
-$('#glossarySearch').oninput=renderGlossary;
-$('#customerSearch').oninput=renderCustomers;
-$('#investorKeyword').onchange=()=>{renderFundraising();broadcast('融资关键词已筛选','国内机构匹配分')};
-$('#investorChannel').onchange=()=>{renderFundraising();broadcast('融资渠道已筛选','机构候选池')};
-$('#toggleDemoMode').onclick=async()=>{
- const r=await api('/api/object',{method:'POST',body:JSON.stringify({key:'demoMode',value:!state.demoMode})});
- state=r.state;renderAll();broadcast(state.demoMode?'已启用经营规划口径':'已切换已入账口径','客户 / 收入 / 罗盘 / 融资');toast(state.demoMode?'客户合同与预算已参与预测':'已恢复已入账经营口径');
-};
-$('#exportAccounting').onclick=()=>{broadcast('已生成代账交接包','资金流水 / 报销 / 票据索引');location.href=`/api/export/accounting?month=${encodeURIComponent($('#accountingMonth').value||MONTH)}`};
-$('#refreshInvestorScout').onclick=async()=>{
- const b=$('#refreshInvestorScout');b.disabled=true;b.textContent='扫描中';
- try{const r=await api('/api/investor-scout',{method:'POST',body:'{}'});state=r.state;renderAll();broadcast('融资信号已更新','机构名单 / 市场信号 / 匹配分');toast(r.message||'融资信号已更新')}
- catch(e){toast('联网更新失败，已保留现有候选库')}
- finally{b.disabled=false;b.textContent='联网更新融资信号'}
-};
-$('#refreshAll').onclick=async()=>{await load();broadcast('数据已刷新','全部模块');toast('全部数据已刷新')};
-load().catch(err=>{$('#serverStatus').textContent='连接失败';console.error(err)});
+$('#investorKeyword').onchange=renderFundraising;$('#investorChannel').onchange=renderFundraising;
+$('#exportAccounting').onclick=()=>location.href=`/api/export/accounting?month=${encodeURIComponent($('#accountingMonth').value||MONTH)}`;
+$('#refreshInvestorScout').onclick=async()=>{const b=$('#refreshInvestorScout');b.disabled=true;b.textContent='更新中';try{const r=await api('/api/investor-scout',{method:'POST',body:'{}'});state=r.state;renderAll();announce(r.message)}catch(e){toast('更新失败，已保留现有研究库')}finally{b.disabled=false;b.textContent='更新公开融资信号'}};
+$('#refreshAll').onclick=()=>load().then(()=>announce('全部数据已刷新'));
+load().catch(e=>{$('#serverStatus').textContent='连接失败';console.error(e)});

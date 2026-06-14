@@ -32,8 +32,15 @@ RULES = DATA / "rules"
 BACKUPS = ROOT / "backups"
 STATE_BACKUPS = BACKUPS / "state-versions"
 LOCK = threading.RLock()
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 DIVIDEND_RULE_FILE = RULES / "FutureFlow_PMF阶段期权分红.xlsx"
+EDITABLE_COLLECTIONS = {
+    "contracts", "incomeEntries", "costItems", "employees", "payrollRuns",
+    "shareholders", "dividendDistributions", "fundraisingRounds",
+    "investorPipeline", "investorInteractions", "reimbursements",
+    "transactions", "obligations", "risks", "dataRoomChecklist", "accounts",
+}
+EDITABLE_OBJECTS = {"settings", "accounts", "assumptions", "operating", "dividendRules", "governance", "readiness"}
 
 INVESTOR_TARGETS = [
     {"id":"cn-oxyz","name":"OXYZ资本","baseScore":88,"focus":["数据","出境出海","电商","人工智能"],"stage":"天使轮/种子轮","channel":"财务投资","ticket":"300万至1500万元","reason":"公开策略聚焦中国及中国团队出海的人工智能应用，和海外获客、数字营销、企业服务交叉度较高。","url":"https://www.oxyzcapital.com/"},
@@ -134,7 +141,12 @@ def migrate_state_preserving_data(state):
 def validate_state(state):
     if not isinstance(state, dict):
         raise ValueError("核心数据格式错误")
-    for key in ("transactions", "incomeEntries", "costItems", "reimbursements", "accounts", "audit"):
+    for key in (
+        "transactions", "incomeEntries", "costItems", "reimbursements",
+        "accounts", "audit", "contracts", "employees", "payrollRuns",
+        "shareholders", "dividendDistributions", "fundraisingRounds",
+        "investorPipeline", "investorInteractions",
+    ):
         if not isinstance(state.get(key), list):
             raise ValueError(f"{key} 必须为列表")
     json.dumps(state, ensure_ascii=False)
@@ -164,8 +176,11 @@ def seed_state():
             {"id": "acc-cash", "name": "备用金", "openingBalance": 0},
         ],
         "transactions": [],
+        "contracts": [],
         "incomeEntries": [],
         "costItems": [],
+        "employees": [],
+        "payrollRuns": [],
         "dividendRules": {
             "founderPool": 60,
             "cofounderPool": 30,
@@ -175,25 +190,39 @@ def seed_state():
             "cliffMonths": 12,
             "pmfDividendRate": 0,
             "retentionReserveRate": 20,
-            "afterTaxProfit": 1000000,
-            "qualifiedFinancing": 5000000,
-            "founderDeferredCompCap": 300000,
+            "afterTaxProfit": 0,
+            "qualifiedFinancing": 0,
+            "founderDeferredCompCap": 0,
             "financingBonusRate": 5,
             "leaverRepurchase": "无离职回购",
             "updatedFrom": "FutureFlow_PMF阶段期权分红.xlsx",
         },
         "evidence": [],
         "reimbursements": [],
-        "demoMode": True,
+        "demoMode": False,
         "demoCustomers": [],
         "operating": {"customers": 0, "mrr": 0},
         "investorTargets": INVESTOR_TARGETS,
-        "fundingSignals": DEFAULT_FUNDING_SIGNALS,
+        "fundingSignals": [],
         "assumptions": {"openingCash": 0, "employees": 0, "fixedCost": 0, "grossMargin": 0, "growthRate": 0, "churnRate": 0, "fundingTarget": 0, "postFundingBurn": 0},
         "budgets": [],
         "obligations": [],
         "investors": [],
         "shareholders": [],
+        "dividendDistributions": [],
+        "fundraisingRounds": [],
+        "investorPipeline": [],
+        "investorInteractions": [],
+        "dataRoomChecklist": [
+            {"id":"dr-corp","name":"工商、章程与历史变更","category":"公司治理","completed":False},
+            {"id":"dr-cap","name":"股东名册与股权结构表","category":"公司治理","completed":False},
+            {"id":"dr-fin","name":"财务报表、流水与纳税资料","category":"财务","completed":False},
+            {"id":"dr-contract","name":"客户合同、回款及续费证据","category":"业务","completed":False},
+            {"id":"dr-hr","name":"劳动合同、工资与社保记录","category":"人事","completed":False},
+            {"id":"dr-ip","name":"知识产权与数据合规文件","category":"法律","completed":False},
+            {"id":"dr-model","name":"三年财务预测与融资用途","category":"融资","completed":False},
+            {"id":"dr-pitch","name":"商业计划书与管理层问答","category":"融资","completed":False},
+        ],
         "risks": [],
         "governance": {
             "规范会计账簿": False, "合同台账完整": False, "发票与流水一致": False, "工资社保合规": False,
@@ -268,11 +297,70 @@ def money(value):
     return f"¥{float(value or 0):,.0f}"
 
 
+def add_months(day, months):
+    month_index = day.month - 1 + months
+    year = day.year + month_index // 12
+    month = month_index % 12 + 1
+    month_lengths = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    return date(year, month, min(day.day, month_lengths[month - 1]))
+
+
+def contract_schedule(contract):
+    start = date.fromisoformat(contract.get("startDate") or str(date.today()))
+    end_text = contract.get("endDate")
+    if end_text:
+        end = date.fromisoformat(end_text)
+        months = max(1, (end.year - start.year) * 12 + end.month - start.month + 1)
+    else:
+        months = max(1, int(contract.get("contractMonths", 1)))
+        end = add_months(start, months) - timedelta(days=1)
+        contract["endDate"] = str(end)
+    rows = []
+    monthly_fee = float(contract.get("monthlyFee", 0))
+    setup_fee = float(contract.get("setupFee", 0))
+    payment_days = int(contract.get("paymentDays", 0))
+    for index in range(months):
+        service_date = add_months(start, index)
+        if service_date > end:
+            break
+        rows.append({
+            "id": f'{contract["id"]}-m{index + 1:02d}',
+            "contractId": contract["id"], "contractNo": contract.get("contractNo", ""),
+            "customer": contract.get("customerName", ""), "date": str(service_date),
+            "dueDate": str(service_date + timedelta(days=payment_days)),
+            "category": "月度服务费", "amount": monthly_fee, "status": "应收",
+            "invoiceNo": "", "account": "", "description": f'{service_date:%Y-%m} 合同收入计划',
+            "generated": True,
+        })
+    if setup_fee:
+        rows.insert(0, {
+            "id": f'{contract["id"]}-setup',
+            "contractId": contract["id"], "contractNo": contract.get("contractNo", ""),
+            "customer": contract.get("customerName", ""), "date": str(start),
+            "dueDate": str(start + timedelta(days=payment_days)),
+            "category": "一次性服务费", "amount": setup_fee, "status": "应收",
+            "invoiceNo": "", "account": "", "description": "合同一次性收入计划",
+            "generated": True,
+        })
+    return rows
+
+
+def rebuild_contract_schedule(state, contract):
+    preserved = [
+        row for row in state.get("incomeEntries", [])
+        if row.get("contractId") != contract["id"] or row.get("status") in ("已确认", "已回款")
+    ]
+    completed_ids = {row.get("id") for row in preserved}
+    generated = [row for row in contract_schedule(contract) if row["id"] not in completed_ids]
+    state["incomeEntries"] = generated + preserved
+
+
 def financial_snapshot(state, month=None):
     month = month or str(date.today())[:7]
     transactions = state.get("transactions", [])
     income_entries = state.get("incomeEntries", [])
     cost_items = state.get("costItems", [])
+    payroll_runs = state.get("payrollRuns", [])
     claims = [x for x in state.get("reimbursements", []) if x.get("status") != "已驳回"]
     pending = [x for x in claims if x.get("status") == "待审核"]
     approved = [x for x in claims if x.get("status") == "已审核"]
@@ -289,15 +377,33 @@ def financial_snapshot(state, month=None):
         return bool(start) and start <= month and (not end or end >= month)
     income = [x for x in transactions if x.get("type") == "income"]
     financing = [x for x in transactions if x.get("type") == "financing"]
+    financing_received = sum(
+        float(x.get("actualAmount", 0))
+        for x in state.get("fundraisingRounds", [])
+        if x.get("status") == "已交割"
+    )
     expense = [x for x in transactions if x.get("type") == "expense"]
     recognized_income = [x for x in income_entries if x.get("status") in ("已确认", "已回款")]
     received_income = [x for x in income_entries if x.get("status") == "已回款"]
     recognized_costs = [x for x in cost_items if x.get("status") in ("已发生", "已支付")]
     paid_costs = [x for x in cost_items if x.get("status") == "已支付"]
-    month_costs = [x for x in cost_items if x.get("status") != "暂停" and cost_in_month(x)]
+    paid_payroll = [x for x in payroll_runs if x.get("status") == "已支付"]
+    accrued_payroll = [x for x in payroll_runs if x.get("status") in ("已计提", "已支付")]
+    month_costs = [x for x in cost_items if x.get("status") not in ("暂停", "已归档") and cost_in_month(x)]
+    active_employees = [
+        x for x in state.get("employees", [])
+        if x.get("status", "在职") == "在职"
+        and str(x.get("startDate") or "0000-00")[:7] <= month
+        and (not x.get("endDate") or str(x.get("endDate"))[:7] >= month)
+    ]
+    payroll_budget = sum(
+        float(x.get("baseSalary", 0)) + float(x.get("employerSocial", 0))
+        + float(x.get("housingFund", 0)) + float(x.get("monthlyBonus", 0))
+        for x in active_employees
+    )
     opening = sum(float(x.get("openingBalance", 0)) for x in state.get("accounts", []))
-    actual_cash = opening + amount(income) + amount(financing) + amount(received_income) - amount(expense) - sum(cost_amount(x) for x in paid_costs) - amount(paid)
-    committed = amount(pending) + amount(approved)
+    actual_cash = opening + amount(income) + amount(financing) + financing_received + amount(received_income) - amount(expense) - sum(cost_amount(x) for x in paid_costs) - amount(paid) - amount(paid_payroll)
+    committed = amount(pending) + amount(approved) + amount([x for x in accrued_payroll if x.get("status") == "已计提"])
     committed_costs = sum(cost_amount(x) for x in month_costs if x.get("status") == "已发生")
     available_cash = actual_cash - committed - committed_costs
     month_income = amount(in_month(income)) + amount(in_month(received_income))
@@ -305,32 +411,36 @@ def financial_snapshot(state, month=None):
     month_transaction_expense = amount(in_month(expense))
     month_recognized_costs = sum(cost_amount(x) for x in month_costs if x.get("status") in ("已发生", "已支付"))
     month_paid_costs = sum(cost_amount(x) for x in in_month(paid_costs))
-    month_budget_costs = sum(cost_amount(x) for x in month_costs)
+    month_budget_costs = sum(cost_amount(x) for x in month_costs) + payroll_budget
     direct_cost_run_rate = sum(cost_amount(x) for x in month_costs if x.get("costNature") == "direct")
     operating_cost_run_rate = month_budget_costs - direct_cost_run_rate
     month_paid_claims = amount(in_month(paid))
+    month_paid_payroll = amount([x for x in paid_payroll if x.get("month") == month or x.get("payDate", "").startswith(month)])
+    month_accrued_payroll = amount([x for x in accrued_payroll if x.get("month") == month])
     month_recognized_claims = amount(in_month(recognized))
-    cash_outflow = month_transaction_expense + month_paid_costs + month_paid_claims
-    accrual_expense = month_transaction_expense + month_recognized_costs + month_recognized_claims
+    cash_outflow = month_transaction_expense + month_paid_costs + month_paid_claims + month_paid_payroll
+    accrual_expense = month_transaction_expense + month_recognized_costs + month_recognized_claims + month_accrued_payroll
     assumptions = state.get("assumptions", {})
     operating = state.get("operating", {})
     detailed_costs = any(x.get("status") != "暂停" for x in cost_items)
     fixed_cost = month_budget_costs if detailed_costs else float(assumptions.get("fixedCost", 0))
-    planning_customers = [
-        x for x in state.get("demoCustomers", [])
-        if x.get("active", True) and x.get("status") not in ("暂停服务", "已流失")
-    ] if state.get("demoMode") else []
-    if planning_customers:
-        mrr = sum(float(x.get("mrr", 0)) for x in planning_customers)
+    active_contracts = [
+        x for x in state.get("contracts", [])
+        if x.get("status", "履约中") in ("待履约", "履约中", "待续约")
+        and str(x.get("startDate") or "9999-12-31")[:7] <= month
+        and (not x.get("endDate") or str(x.get("endDate"))[:7] >= month)
+    ]
+    if active_contracts:
+        mrr = sum(float(x.get("monthlyFee", 0)) for x in active_contracts)
         gross_margin = (
-            sum(float(x.get("mrr", 0)) * float(x.get("grossMargin", 0)) for x in planning_customers) / mrr
+            sum(float(x.get("monthlyFee", 0)) * float(x.get("grossMargin", 0)) for x in active_contracts) / mrr
             if mrr else 0
         )
     else:
         mrr = float(operating.get("mrr", 0))
         gross_margin = float(assumptions.get("grossMargin", 0))
     modeled_income = mrr + sum(
-        float(x.get("setupRevenue", 0)) for x in planning_customers
+        float(x.get("setupFee", 0)) for x in active_contracts
         if str(x.get("startDate", "")).startswith(month)
     )
     if detailed_costs and modeled_income:
@@ -338,7 +448,8 @@ def financial_snapshot(state, month=None):
     projected_gross_profit = max(0, modeled_income - direct_cost_run_rate)
     projected_net_burn = max(0, fixed_cost + month_recognized_claims - modeled_income)
     runway = available_cash / projected_net_burn if projected_net_burn else 99
-    open_ar = amount([x for x in state.get("obligations", []) if x.get("type") == "receivable" and x.get("status") != "已结清"])
+    open_ar = amount([x for x in income_entries if x.get("status") in ("应收", "已开票", "已确认")])
+    open_ar += amount([x for x in state.get("obligations", []) if x.get("type") == "receivable" and x.get("status") != "已结清"])
     trade_ap = amount([x for x in state.get("obligations", []) if x.get("type") == "payable" and x.get("status") != "已结清"])
     cost_ap = sum(cost_amount(x) for x in recognized_costs if x.get("status") == "已发生")
     open_ap = trade_ap + amount(approved) + cost_ap
@@ -359,6 +470,9 @@ def financial_snapshot(state, month=None):
         "monthRecognizedClaims": month_recognized_claims, "mrr": mrr, "grossMargin": gross_margin,
         "projectedNetBurn": projected_net_burn, "runway": runway, "openAR": open_ar, "openAP": open_ap,
         "ticketRate": ticket_rate, "cashBurn": max(0, cash_outflow - month_income),
+        "payrollBudget": payroll_budget, "monthPaidPayroll": month_paid_payroll,
+        "monthAccruedPayroll": month_accrued_payroll, "employeeCount": len(active_employees),
+        "contractCount": len(active_contracts),
     }
 
 
@@ -373,7 +487,10 @@ def weekly_report(state):
     expense = sum(float(x["amount"]) for x in txs if x["type"] == "expense" and x["date"] >= str(start)) + week_paid_costs + week_paid_claims
     snapshot = financial_snapshot(state)
     open_risks = [x for x in state.get("risks", []) if x.get("status") != "已关闭"]
-    financing = sum(float(x.get("amount", 0)) * float(x.get("probability", 0)) / 100 for x in state.get("investors", []) if x.get("stage") != "已关闭")
+    financing = sum(
+        float(x.get("ticket", 0)) * float(x.get("probability", 0)) / 100
+        for x in state.get("investorPipeline", []) if x.get("stage") != "已关闭"
+    )
     alerts = []
     if snapshot["runway"] < 6: alerts.append("现金可支撑时间低于 6 个月，应立即控制招聘与非核心支出。")
     if snapshot["ticketRate"] < 90: alerts.append("资金证据完整度低于 90%，需优先补齐合同、发票和银行回单。")
@@ -396,6 +513,8 @@ def weekly_report(state):
 
 
 def ensure_weekly(state):
+    if not any(state.get(key) for key in ("contracts", "incomeEntries", "costItems", "employees", "reimbursements")):
+        return
     report = weekly_report(state)
     reports = state.setdefault("weeklyReports", [])
     existing_index = next((i for i, item in enumerate(reports) if item["id"] == report["id"]), None)
@@ -495,11 +614,11 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def export_csv(self, kind):
-        rows = STATE.get("transactions" if kind == "ledger" else "investors", [])
+        rows = STATE.get("transactions" if kind == "ledger" else "investorPipeline", [])
         if kind == "ledger":
             fields = ["date","type","amount","account","counterparty","category","project","contractNo","invoiceNo","bankRef","purpose"]
         else:
-            fields = ["name","type","stage","amount","probability","nextDate","owner","thesis","nextAction"]
+            fields = ["institution","contact","channel","focus","stage","ticket","probability","nextDate","owner","thesis","nextAction"]
         out = io.StringIO(); writer = csv.DictWriter(out, fieldnames=fields); writer.writeheader()
         for row in rows: writer.writerow({k: row.get(k, "") for k in fields})
         body = ("\ufeff" + out.getvalue()).encode("utf-8")
@@ -519,6 +638,7 @@ class Handler(SimpleHTTPRequestHandler):
             )
         ]
         reimbursements = [x for x in STATE.get("reimbursements", []) if x.get("date", "").startswith(month)]
+        payroll_runs = [x for x in STATE.get("payrollRuns", []) if x.get("month") == month]
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
             ledger = io.StringIO()
@@ -558,6 +678,13 @@ class Handler(SimpleHTTPRequestHandler):
                 cost_writer.writerow(output)
             bundle.writestr(f"04_经营成本_{month}.csv", "\ufeff" + costs.getvalue())
 
+            payroll = io.StringIO()
+            payroll_fields = ["month", "payDate", "amount", "status", "notes"]
+            payroll_writer = csv.DictWriter(payroll, fieldnames=payroll_fields); payroll_writer.writeheader()
+            for row in payroll_runs:
+                payroll_writer.writerow({k: row.get(k, "") for k in payroll_fields})
+            bundle.writestr(f"05_工资计提与发放_{month}.csv", "\ufeff" + payroll.getvalue())
+
             index = io.StringIO()
             index.write("日期,业务类型,对象,金额,发票号码,附件文件\n")
             for row in transactions:
@@ -570,7 +697,7 @@ class Handler(SimpleHTTPRequestHandler):
             for row in cost_items:
                 total = float(row.get("unitAmount", 0)) * float(row.get("quantity", 0))
                 index.write(f'{row.get("date","")},经营成本,{row.get("counterparty") or row.get("name","")},{total},{row.get("invoiceNo","")},\n')
-            bundle.writestr(f"05_票据索引_{month}.csv", "\ufeff" + index.getvalue())
+            bundle.writestr(f"06_票据索引_{month}.csv", "\ufeff" + index.getvalue())
 
             for item in STATE.get("evidence", []):
                 tx = next((x for x in transactions if x.get("id") == item.get("transactionId")), None)
@@ -587,7 +714,8 @@ class Handler(SimpleHTTPRequestHandler):
 2. 员工报销表
 3. 收入确认与回款表
 4. 经营成本表
-5. 票据索引及已上传的原始附件
+5. 工资计提与发放表
+6. 票据索引及已上传的原始附件
 
 客户合同预算未作为现金或已确认收入导出；收入与成本台账按各自状态完整保留。
 
@@ -608,11 +736,42 @@ class Handler(SimpleHTTPRequestHandler):
         try: payload = self.body_json()
         except Exception as exc: return self.json({"ok":False,"message":str(exc)},400)
         with LOCK:
-            if path == "/api/item":
+            if path == "/api/contract":
+                contract = payload["item"]
+                contract.setdefault("id", uuid.uuid4().hex)
+                contract.setdefault("status", "履约中")
+                contract.setdefault("createdAt", now_iso())
+                contract["contractMonths"] = max(1, int(contract.get("contractMonths", 1)))
+                contract["totalAmount"] = float(contract.get("totalAmount") or (
+                    float(contract.get("monthlyFee", 0)) * contract["contractMonths"]
+                    + float(contract.get("setupFee", 0))
+                ))
+                STATE.setdefault("contracts", []).insert(0, contract)
+                rebuild_contract_schedule(STATE, contract)
+                audit(STATE, "新增合同", f'{contract.get("contractNo")} {contract.get("customerName")}')
+            elif path == "/api/contract-update":
+                item_id, changes = payload["id"], payload["changes"]
+                contract = next((x for x in STATE.get("contracts", []) if x.get("id") == item_id), None)
+                if not contract: return self.json({"ok":False,"message":"合同不存在"},404)
+                contract.update(changes)
+                contract["contractMonths"] = max(1, int(contract.get("contractMonths", 1)))
+                contract["totalAmount"] = float(contract.get("totalAmount") or (
+                    float(contract.get("monthlyFee", 0)) * contract["contractMonths"]
+                    + float(contract.get("setupFee", 0))
+                ))
+                if contract.get("status") not in ("已终止", "已归档"):
+                    rebuild_contract_schedule(STATE, contract)
+                audit(STATE, "更新合同", contract.get("contractNo") or item_id)
+            elif path == "/api/item":
                 collection = payload["collection"]; item = payload["item"]; item.setdefault("id", uuid.uuid4().hex)
+                if collection not in EDITABLE_COLLECTIONS:
+                    return self.json({"ok":False,"message":"不允许写入该数据表"},403)
+                item.setdefault("createdAt", now_iso())
                 STATE.setdefault(collection, []).insert(0, item); audit(STATE, f"新增{collection}", item.get("name") or item.get("counterparty") or item.get("description") or item["id"])
             elif path == "/api/update":
                 collection, item_id, changes = payload["collection"], payload["id"], payload["changes"]
+                if collection not in EDITABLE_COLLECTIONS:
+                    return self.json({"ok":False,"message":"不允许修改该数据表"},403)
                 item = next((x for x in STATE.get(collection, []) if x.get("id") == item_id), None)
                 if not item: return self.json({"ok":False,"message":"记录不存在"},404)
                 if collection == "reimbursements":
@@ -621,6 +780,8 @@ class Handler(SimpleHTTPRequestHandler):
                 item.update(changes); audit(STATE, f"更新{collection}", item_id)
             elif path == "/api/object":
                 key, value = payload["key"], payload["value"]
+                if key not in EDITABLE_OBJECTS:
+                    return self.json({"ok":False,"message":"不允许修改该设置"},403)
                 if isinstance(STATE.get(key), dict) and isinstance(value, dict):
                     STATE[key].update(value)
                 elif isinstance(STATE.get(key), list) and isinstance(value, list):

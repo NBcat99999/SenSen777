@@ -3,322 +3,385 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FutureFlow 经营与融资中台</title>
-  <link rel="stylesheet" href="styles.css?v=20260608-1">
+  <title>FutureFlow CFO 工作中台</title>
+  <link rel="stylesheet" href="styles.css?v=20260614">
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand"><strong>FutureFlow</strong><span>经营与融资中台</span></div>
+    <div class="brand"><strong>FutureFlow</strong><span>CFO 工作中台</span></div>
     <nav id="nav">
-      <button class="active" data-view="dashboard">经营总览</button>
-      <button data-view="customers">客户模型</button>
-      <button data-view="financeInputs">收支成本</button>
-      <button data-view="dividendRules">分红规则</button>
-      <button data-view="reimbursements">报销票据</button>
-      <button data-view="accounting">代账交接</button>
-      <button data-view="fundraising">融资雷达</button>
+      <button class="active" data-view="dashboard">经营驾驶舱</button>
+      <button data-view="contracts">合同与回款</button>
+      <button data-view="peopleCosts">成本与工资</button>
+      <button data-view="equity">股权与分红</button>
+      <button data-view="fundraising">融资执行</button>
+      <button data-view="accounting">报销与代账</button>
     </nav>
     <div class="server-status"><span id="statusDot"></span><b id="serverStatus">正在连接</b><small id="lastSaved"></small></div>
   </aside>
 
   <main>
     <header class="topbar">
-      <div><p id="todayLabel"></p><h1 id="viewTitle">经营总览</h1></div>
-      <div class="top-status"><span id="actionSignal">系统就绪</span><button id="refreshAll" title="刷新全部数据">刷新</button></div>
+      <div><p id="todayLabel"></p><h1 id="viewTitle">经营驾驶舱</h1></div>
+      <div class="top-status"><span id="actionSignal">系统就绪</span><button id="refreshAll">刷新</button></div>
     </header>
-    <div id="demoBanner" class="data-banner"></div>
+
+    <div class="quick-create">
+      <b>快速开始</b>
+      <button data-go="contracts" data-focus="contractForm">＋ 合同</button>
+      <button data-go="contracts" data-focus="incomeForm">＋ 收入 / 回款</button>
+      <button data-go="peopleCosts" data-focus="employeeForm">＋ 员工</button>
+      <button data-go="peopleCosts" data-focus="costForm">＋ 成本</button>
+      <button data-go="equity" data-focus="shareholderForm">＋ 股东</button>
+      <button data-go="fundraising" data-focus="fundingRoundForm">＋ 融资轮次</button>
+    </div>
 
     <section class="view active" id="dashboard">
       <div class="executive-line">
-        <div><b id="healthLabel">正在计算经营状态</b><span id="healthReason"></span></div>
+        <div><b id="healthLabel">等待经营数据</b><span id="healthReason">请从上方快速入口录入第一份合同或成本。</span></div>
         <span id="dataFreshness"></span>
       </div>
       <div class="metrics" id="dashboardMetrics"></div>
-
-      <div class="grid compass-grid">
-        <article class="panel compass-panel">
-          <div class="section-head"><div><h2>CFO 规则罗盘</h2><p>现金、增长、效率、合规和融资准备度综合评分</p></div><span id="compassGrade"></span></div>
-          <div class="compass-body">
-            <div class="compass-dial"><div id="compassNeedle" class="compass-needle"></div><strong id="compassScore">0</strong><span>综合分</span></div>
-            <div id="compassDimensions" class="dimension-list"></div>
-          </div>
-        </article>
+      <div class="grid two">
         <article class="panel">
-          <div class="section-head"><div><h2>融资渠道适配</h2><p>当前经营状况与主流融资渠道的匹配比例</p></div></div>
-          <div id="channelFit" class="channel-fit"></div>
-        </article>
-      </div>
-
-      <div class="grid executive-grid">
-        <article class="panel focus-panel">
-          <div class="section-head"><div><h2>管理层本周只需关注</h2><p>按现金、收入、回款和凭证自动判断</p></div></div>
+          <div class="section-head"><div><h2>本周待办</h2><p>由合同、回款、工资、票据和融资管线自动生成</p></div></div>
           <div id="managementActions" class="action-list"></div>
         </article>
         <article class="panel">
-          <div class="section-head"><div><h2>经营脉冲</h2><p>权责发生制与现金口径同时呈现</p></div></div>
-          <div id="operatingPulse"></div>
+          <div class="section-head"><div><h2>核心数字来源</h2><p>每个结果都能回到原始台账</p></div></div>
+          <div id="sourceTrace" class="source-trace"></div>
         </article>
       </div>
-
-      <details class="panel professional-center">
-        <summary>
-          <span><b>专业指标中心</b><small>投资机构、董事会及 CFO（首席财务官）口径</small></span>
-          <span>展开查看指标、公式与预警阈值</span>
-        </summary>
-        <div class="professional-body">
-          <div class="section-head"><div><h2>专业经营指标</h2><p>数据不足时显示“待录入”，不以假设冒充事实</p></div></div>
+      <div class="grid two">
+        <article class="panel">
+          <div class="section-head"><div><h2>CFO 经营罗盘</h2><p>现金、收入、成本、合规和融资准备度</p></div><span id="compassGrade"></span></div>
+          <div id="compassDimensions" class="dimension-list"></div>
+        </article>
+        <article class="panel">
+          <div class="section-head"><div><h2>未来 12 个月收入计划</h2><p>来自有效合同自动生成的应收计划</p></div></div>
+          <div id="revenuePlan" class="bar-chart"></div>
+        </article>
+      </div>
+      <details class="panel">
+        <summary><b>初始化账户余额</b><span>首次使用时填写，后续现金由回款、付款及融资到账自动变化</span></summary>
+        <form id="cashBalanceForm" class="details-body">
+          <div class="form-grid">
+            <label>公司基本户期初余额<input name="bankBalance" type="number" min="0" step="0.01"></label>
+            <label>备用金期初余额<input name="cashBalance" type="number" min="0" step="0.01"></label>
+          </div>
+          <button class="primary" type="submit">保存账户余额</button>
+        </form>
+      </details>
+      <details class="panel">
+        <summary><b>专业指标与定义</b><span>展开查看公式、口径和预警阈值</span></summary>
+        <div class="details-body">
           <div class="metrics professional-metrics" id="professionalMetrics"></div>
-          <div class="section-head glossary-head"><div><h2>指标词典</h2><p>英文缩写均附中文翻译、计算公式及管理含义</p></div><input id="glossarySearch" placeholder="搜索指标或中文含义"></div>
-          <div class="table-wrap"><table class="glossary-table"><thead><tr><th>指标</th><th>中文名称</th><th>计算公式</th><th>管理意义</th><th>参考预警</th></tr></thead><tbody id="glossaryRows"></tbody></table></div>
-          <div class="section-head rule-head"><div><h2>CFO 规则手册</h2><p>触发阈值、判断结论与管理动作</p></div></div>
-          <div class="table-wrap"><table class="glossary-table"><thead><tr><th>规则领域</th><th>绿色标准</th><th>黄色预警</th><th>红色风险</th><th>触发动作</th></tr></thead><tbody id="rulebookRows"></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>指标</th><th>中文名称</th><th>计算口径</th><th>管理意义</th><th>预警标准</th></tr></thead><tbody id="glossaryRows"></tbody></table></div>
         </div>
       </details>
-
-      <details class="panel compact-details">
-        <summary><span><b>更新经营参数</b><small>客户、收入、成本和融资目标</small></span><span>展开录入</span></summary>
-        <form id="snapshotForm" class="snapshot-form details-form">
-          <label>签约客户数<input name="customers" type="number" min="0"></label>
-          <label>月度经常性收入<input name="mrr" type="number" min="0"></label>
-          <label>员工人数<input name="employees" type="number" min="0"></label>
-          <label>综合毛利率 %<input name="grossMargin" type="number" min="0" max="100"></label>
-          <label>每月固定支出<input name="fixedCost" type="number" min="0"></label>
-          <label>目标融资额<input name="fundingTarget" type="number" min="0"></label>
-          <button class="primary" type="submit">保存并重算全部指标</button>
-        </form>
-      </details>
-
-      <details class="panel compact-details">
-        <summary><span><b>最近资金与报销</b><small>追溯核心数字的来源</small></span><span>展开明细</span></summary>
-        <div class="table-wrap details-table"><table><thead><tr><th>日期</th><th>事项</th><th>对象</th><th>金额</th><th>会计影响</th></tr></thead><tbody id="recentActivityRows"></tbody></table></div>
-      </details>
     </section>
 
-    <section class="view" id="customers">
-      <div class="radar-bar">
-        <div><b>客户与合同</b><span>客户合同、预算、毛利、回款和续约统一管理</span></div>
-        <button id="toggleDemoMode">切换数据口径</button>
-      </div>
-      <div class="metrics" id="customerMetrics"></div>
-      <details class="panel compact-details contract-entry">
-        <summary><span><b>新增客户合同</b><small>保存后自动重算全部经营与融资指标</small></span><span>展开录入</span></summary>
-        <form id="contractForm" class="details-form">
-          <div class="form-grid contract-grid">
-            <label>客户简称<input name="displayName" required placeholder="例如：上海某入境旅行社"></label>
-            <label>合同编号<input name="contractNo" required placeholder="例如：FF-2026-001"></label>
-            <label>城市<input name="city" required></label>
-            <label>客户类型<select name="sector"><option>入境旅行社</option><option>地接社</option><option>商务会奖</option><option>文旅集团</option><option>旅游目的地运营</option></select></label>
-            <label>服务产品<select name="product"><option>海外社媒代运营</option><option>GEO内容增长</option><option>英文官网及SEO</option><option>海外线索增长</option><option>整合营销顾问</option></select></label>
-            <label>月度预算<input name="mrr" type="number" min="0" required></label>
-            <label>一次性收入<input name="setupRevenue" type="number" min="0" value="0"></label>
+    <section class="view" id="contracts">
+      <div class="module-head"><div><b>合同与回款</b><span>录入合同后自动生成月度收入计划、应收账款和到期日</span></div></div>
+      <div class="metrics" id="contractMetrics"></div>
+      <article class="panel entry-panel">
+        <div class="section-head"><div><h2>新增合同</h2><p>保存一次，联动 MRR（月度经常性收入）、应收、现金预测和融资指标</p></div></div>
+        <form id="contractForm">
+          <div class="form-grid four">
+            <label>客户名称<input name="customerName" required></label>
+            <label>统一社会信用代码<input name="creditCode"></label>
+            <label>合同编号<input name="contractNo" required></label>
+            <label>业务负责人<input name="owner"></label>
+            <label>合同类型<select name="contractType"><option>经常性服务</option><option>一次性项目</option><option>混合合同</option></select></label>
+            <label>服务产品<input name="product" required></label>
+            <label>签约日期<input name="signDate" type="date" required></label>
+            <label>开始日期<input name="startDate" type="date" required></label>
+            <label>合同月数<input name="contractMonths" type="number" min="1" value="12" required></label>
+            <label>月度服务费<input name="monthlyFee" type="number" min="0" step="0.01" value="0"></label>
+            <label>一次性费用<input name="setupFee" type="number" min="0" step="0.01" value="0"></label>
+            <label>预计直接成本 / 月<input name="directCost" type="number" min="0" step="0.01" value="0"></label>
             <label>预计毛利率 %<input name="grossMargin" type="number" min="0" max="100" value="60"></label>
-            <label>获客成本<input name="acquisitionCost" type="number" min="0" value="0"></label>
-            <label>合同开始<input name="startDate" type="date" required></label>
-            <label>合同月数<input name="contractMonths" type="number" min="1" value="12"></label>
-            <label>回款账期（天）<input name="paymentDays" type="number" min="0" value="30"></label>
-            <label>续约概率 %<input name="renewalProbability" type="number" min="0" max="100" value="80"></label>
+            <label>收款账期 / 天<input name="paymentDays" type="number" min="0" value="30"></label>
+            <label>税率 %<input name="taxRate" type="number" min="0" max="100" value="6"></label>
+            <label>合同状态<select name="status"><option>待履约</option><option selected>履约中</option><option>待续约</option></select></label>
           </div>
+          <label>收款条款<input name="paymentTerms" placeholder="例如：每月服务开始后 5 个工作日内付款"></label>
+          <label>合同备注<input name="notes"></label>
           <div id="contractImpact" class="impact-preview"></div>
-          <button class="primary" type="submit">保存合同并联动全部指标</button>
+          <button class="primary" type="submit">保存合同并生成应收计划</button>
         </form>
-      </details>
-      <div class="grid two">
-        <article class="panel"><div class="section-head"><h2>客户结构</h2><span>行业与产品分布</span></div><div id="customerMix"></div></article>
-        <article class="panel"><div class="section-head"><h2>客户风险</h2><span>续费、回款与集中度</span></div><div id="customerRisks" class="action-list"></div></article>
-      </div>
-      <article class="panel">
-        <div class="section-head"><div><h2>客户明细</h2><p>带边框数字可直接修改，离开输入框后自动保存并联动</p></div><input id="customerSearch" placeholder="搜索客户、城市、行业"></div>
-        <div class="table-wrap tall"><table><thead><tr><th>客户</th><th>城市 / 类型</th><th>产品</th><th>月度预算</th><th>毛利率</th><th>获客成本</th><th>账期</th><th>续约概率</th><th>状态</th></tr></thead><tbody id="customerRows"></tbody></table></div>
       </article>
-    </section>
-
-    <section class="view" id="financeInputs">
-      <div class="radar-bar">
-        <div><b>收入与成本台账</b><span>合同预算、收入确认、实际回款、成本发生和实际付款分层管理</span></div>
-        <span class="source-note">带边框字段均可修改，结果指标自动重算</span>
-      </div>
-      <div class="metrics" id="financeInputMetrics"></div>
-      <div class="quick-strip">
-        <button data-jump-view="customers">新增合同</button>
-        <button data-jump-view="financeInputs" data-focus-form="incomeForm">录入收入</button>
-        <button data-jump-view="financeInputs" data-focus-form="costForm">录入成本</button>
-        <span>合同会实时进入 MRR（月度经常性收入）、ARR（年度经常性收入）、毛利、Runway（现金可支撑时间）和融资雷达。</span>
-      </div>
-
-      <div class="grid two input-ledgers">
-        <article class="panel">
-          <div class="section-head"><div><h2>录入收入</h2><p>用于记录开票、收入确认及客户回款</p></div></div>
+      <article class="panel">
+        <div class="section-head"><div><h2>合同台账</h2><p>金额、账期、毛利率和状态可直接修改</p></div><input id="contractSearch" placeholder="搜索客户或合同编号"></div>
+        <div class="table-wrap tall"><table><thead><tr><th>客户 / 合同</th><th>期间</th><th>月费</th><th>一次性</th><th>直接成本</th><th>毛利率</th><th>账期</th><th>状态</th><th>操作</th></tr></thead><tbody id="contractRows"></tbody></table></div>
+      </article>
+      <div class="grid two">
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>收入、开票与回款</h2><p>合同已自动产生“应收”计划，只需更新实际状态</p></div></div>
           <form id="incomeForm">
             <div class="form-grid">
               <label>业务日期<input name="date" type="date" required></label>
               <label>客户名称<input name="customer" list="customerOptions" required></label>
-              <label>合同编号<input name="contractNo" placeholder="例如 FF-2026-001"></label>
-              <label>收入类别<select name="category"><option>月度服务费</option><option>项目服务费</option><option>官网建设</option><option>咨询顾问</option><option>其他收入</option></select></label>
+              <label>合同编号<input name="contractNo" list="contractOptions"></label>
+              <label>收入类别<select name="category"><option>月度服务费</option><option>一次性服务费</option><option>其他收入</option></select></label>
               <label>金额<input name="amount" type="number" min="0" step="0.01" required></label>
-              <label>会计状态<select name="status"><option>合同预算</option><option>已开票</option><option>已确认</option><option>已回款</option></select></label>
-              <label>发票号码<input name="invoiceNo" placeholder="未开票可留空"></label>
-              <label>回款账户<input name="account" placeholder="例如 公司基本户"></label>
+              <label>状态<select name="status"><option>应收</option><option>已开票</option><option>已确认</option><option>已回款</option></select></label>
+              <label>到期日<input name="dueDate" type="date"></label>
+              <label>发票号码<input name="invoiceNo"></label>
+              <label>回款账户<input name="account"></label>
             </div>
-            <label>业务说明<input name="description" placeholder="服务期间、项目名称或回款说明"></label>
-            <div id="incomeImpact" class="impact-preview"></div>
-            <button class="primary" type="submit">保存收入并联动</button>
+            <label>说明<input name="description"></label>
+            <button class="primary" type="submit">新增收入记录</button>
           </form>
         </article>
-
         <article class="panel">
-          <div class="section-head"><div><h2>录入成本</h2><p>员工、房租、外包、软件及其他经营成本</p></div></div>
+          <div class="section-head"><div><h2>应收与回款台账</h2><p>自动计划和手工记录统一管理</p></div><span id="incomeCount"></span></div>
+          <div class="table-wrap tall"><table><thead><tr><th>日期 / 到期</th><th>客户 / 合同</th><th>金额</th><th>状态</th><th>发票</th><th>操作</th></tr></thead><tbody id="incomeRows"></tbody></table></div>
+        </article>
+      </div>
+      <datalist id="customerOptions"></datalist><datalist id="contractOptions"></datalist>
+    </section>
+
+    <section class="view" id="peopleCosts">
+      <div class="module-head"><div><b>成本与工资</b><span>员工工资、社保、公积金及经营成本共同进入现金预测</span></div></div>
+      <div class="metrics" id="costMetrics"></div>
+      <div class="grid two">
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>新增员工</h2><p>自动形成每月人工成本预算</p></div></div>
+          <form id="employeeForm">
+            <div class="form-grid">
+              <label>姓名<input name="name" required></label>
+              <label>岗位<input name="role" required></label>
+              <label>部门<input name="department"></label>
+              <label>入职日期<input name="startDate" type="date" required></label>
+              <label>基本工资 / 月<input name="baseSalary" type="number" min="0" required></label>
+              <label>公司承担社保 / 月<input name="employerSocial" type="number" min="0" value="0"></label>
+              <label>公司承担公积金 / 月<input name="housingFund" type="number" min="0" value="0"></label>
+              <label>月度奖金预算<input name="monthlyBonus" type="number" min="0" value="0"></label>
+              <label>用工类型<select name="employmentType"><option>全职</option><option>兼职</option><option>顾问</option><option>实习</option></select></label>
+              <label>状态<select name="status"><option>在职</option><option>待入职</option></select></label>
+            </div>
+            <button class="primary" type="submit">保存员工</button>
+          </form>
+        </article>
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>新增经营成本</h2><p>房租、外包、软件、市场及其他成本</p></div></div>
           <form id="costForm">
             <div class="form-grid">
-              <label>业务日期<input name="date" type="date" required></label>
-              <label>成本项目<input name="name" required placeholder="例如 运营团队工资"></label>
-              <label>成本类别<select name="category"><option>员工人工</option><option>房租物业</option><option>外包交付</option><option>软件工具</option><option>市场推广</option><option>差旅招待</option><option>专业服务</option><option>税费</option><option>办公行政</option><option>其他成本</option></select></label>
+              <label>开始日期<input name="date" type="date" required></label>
+              <label>成本项目<input name="name" required></label>
+              <label>类别<select name="category"><option>房租物业</option><option>外包交付</option><option>软件工具</option><option>市场推广</option><option>差旅招待</option><option>专业服务</option><option>税费</option><option>办公行政</option><option>其他成本</option></select></label>
               <label>成本属性<select name="costNature"><option value="direct">直接交付成本</option><option value="operating">期间费用</option></select></label>
-              <label>单位金额<input name="unitAmount" type="number" min="0" step="0.01" required></label>
-              <label>数量 / 人数<input name="quantity" type="number" min="0.01" step="0.01" value="1" required></label>
-              <label>发生频率<select name="frequency"><option value="monthly">每月固定</option><option value="oneoff">单次发生</option></select></label>
-              <label>会计状态<select name="status"><option>预算</option><option>已发生</option><option>已支付</option><option>暂停</option></select></label>
-              <label>供应商 / 收款方<input name="counterparty" placeholder="员工团队、房东或供应商"></label>
-              <label>合同编号<input name="contractNo"></label>
-              <label>发票号码<input name="invoiceNo"></label>
+              <label>单位金额<input name="unitAmount" type="number" min="0" required></label>
+              <label>数量<input name="quantity" type="number" min="0.01" step="0.01" value="1"></label>
+              <label>频率<select name="frequency"><option value="monthly">每月固定</option><option value="oneoff">单次发生</option></select></label>
+              <label>状态<select name="status"><option>预算</option><option>已发生</option><option>已支付</option></select></label>
+              <label>供应商 / 收款方<input name="counterparty"></label>
               <label>终止日期<input name="endDate" type="date"></label>
+              <label>发票号码<input name="invoiceNo"></label>
             </div>
-            <label>成本说明<input name="description" placeholder="工资期间、租赁期间或采购内容"></label>
-            <div id="costImpact" class="impact-preview"></div>
-            <button class="primary" type="submit">保存成本并联动</button>
+            <label>说明<input name="description"></label>
+            <button class="primary" type="submit">保存成本</button>
           </form>
         </article>
       </div>
-
-      <datalist id="customerOptions"></datalist>
-      <article class="panel ledger-panel">
-        <div class="section-head"><div><h2>收入明细</h2><p>金额、日期、状态均可直接调整</p></div><span id="incomeCount"></span></div>
-        <div class="table-wrap"><table><thead><tr><th>日期</th><th>客户</th><th>合同 / 类别</th><th>金额</th><th>状态</th><th>发票</th></tr></thead><tbody id="incomeRows"></tbody></table></div>
+      <article class="panel">
+        <div class="section-head"><div><h2>员工工资台账</h2><p>所有金额均可直接修改，离职采用归档</p></div><span id="employeeCount"></span></div>
+        <div class="table-wrap"><table><thead><tr><th>员工</th><th>岗位 / 部门</th><th>入职</th><th>工资</th><th>社保</th><th>公积金</th><th>奖金</th><th>月总成本</th><th>状态</th><th>操作</th></tr></thead><tbody id="employeeRows"></tbody></table></div>
       </article>
-      <article class="panel ledger-panel">
-        <div class="section-head"><div><h2>成本明细</h2><p>单位金额 × 数量自动形成总成本</p></div><span id="costCount"></span></div>
-        <div class="table-wrap"><table><thead><tr><th>日期</th><th>成本项目</th><th>类别 / 属性</th><th>单位金额</th><th>数量</th><th>总额</th><th>频率</th><th>状态</th><th>票据</th></tr></thead><tbody id="costRows"></tbody></table></div>
+      <div class="grid two">
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>记录工资计提或发放</h2><p>预算、计提和付款分开记录，避免把预算误当现金支出</p></div></div>
+          <form id="payrollForm">
+            <div class="form-grid">
+              <label>工资月份<input name="month" type="month" required></label>
+              <label>发放日期<input name="payDate" type="date"></label>
+              <label>工资及公司承担总额<input name="amount" type="number" min="0" required></label>
+              <label>状态<select name="status"><option>预算</option><option>已计提</option><option>已支付</option></select></label>
+            </div>
+            <label>备注<input name="notes"></label>
+            <button class="primary" type="submit">保存工资记录</button>
+          </form>
+        </article>
+        <article class="panel">
+          <div class="section-head"><div><h2>工资发放记录</h2><p>状态可直接修改并联动现金</p></div><span id="payrollCount"></span></div>
+          <div class="table-wrap"><table><thead><tr><th>月份</th><th>发放日</th><th>金额</th><th>状态</th><th>备注</th><th>操作</th></tr></thead><tbody id="payrollRows"></tbody></table></div>
+        </article>
+      </div>
+      <article class="panel">
+        <div class="section-head"><div><h2>经营成本台账</h2><p>金额、数量、频率和状态可直接调整</p></div><span id="costCount"></span></div>
+        <div class="table-wrap"><table><thead><tr><th>项目</th><th>类别</th><th>单位金额</th><th>数量</th><th>月度影响</th><th>频率</th><th>状态</th><th>票据</th><th>操作</th></tr></thead><tbody id="costRows"></tbody></table></div>
       </article>
     </section>
 
-    <section class="view" id="dividendRules">
-      <div class="radar-bar">
-        <div><b>Future flow，PMF 阶段期权分红</b><span>作为中台内置的分红基本规则，所有黄色字段均可手动调整</span></div>
-        <a class="button-link primary" href="/api/rule-file/dividend">下载原始规则 Excel</a>
+    <section class="view" id="equity">
+      <div class="module-head"><div><b>股权与分红</b><span>股东名册、持股比例、期权归属、融资稀释和分红执行</span></div><a class="button-link" href="/api/rule-file/dividend">下载期权规则表</a></div>
+      <div class="metrics" id="equityMetrics"></div>
+      <div class="grid two">
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>新增股东或期权持有人</h2><p>持股比例由股份数自动计算</p></div></div>
+          <form id="shareholderForm">
+            <div class="form-grid">
+              <label>姓名 / 名称<input name="name" required></label>
+              <label>身份<select name="role"><option>创始人</option><option>联合创始人</option><option>员工</option><option>机构股东</option><option>员工期权池</option></select></label>
+              <label>股份数<input name="shares" type="number" min="0" required></label>
+              <label>实缴金额<input name="paidIn" type="number" min="0" value="0"></label>
+              <label>取得日期<input name="grantDate" type="date"></label>
+              <label>归属开始<input name="vestingStart" type="date"></label>
+              <label>归属年限<input name="vestingYears" type="number" min="0" step="0.5" value="4"></label>
+              <label>悬崖期 / 月<input name="cliffMonths" type="number" min="0" value="12"></label>
+              <label>状态<select name="status"><option>有效</option><option>待生效</option></select></label>
+            </div>
+            <button class="primary" type="submit">保存股东</button>
+          </form>
+        </article>
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>分红参数</h2><p>先计算可分配利润，再按有效持股比例生成分配建议</p></div></div>
+          <form id="dividendRulesForm">
+            <div class="form-grid">
+              <label>税后利润<input name="afterTaxProfit" type="number" min="0"></label>
+              <label>留存比例 %<input name="retentionReserveRate" type="number" min="0" max="100"></label>
+              <label>本期分红比例 %<input name="pmfDividendRate" type="number" min="0" max="100"></label>
+              <label>员工期权池 %<input name="employeeEsop" type="number" min="0" max="100"></label>
+              <label>创始人池 %<input name="founderPool" type="number" min="0" max="100"></label>
+              <label>联合创始人池 %<input name="cofounderPool" type="number" min="0" max="100"></label>
+            </div>
+            <button class="primary" type="submit">保存规则并重算</button>
+          </form>
+          <div id="dividendPreview" class="impact-preview"></div>
+        </article>
       </div>
-      <div class="metrics" id="dividendRuleMetrics"></div>
+      <article class="panel">
+        <div class="section-head"><div><h2>Cap Table（股权结构表）</h2><p>股份、实缴、归属参数及状态均可修改</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>股东</th><th>身份</th><th>股份数</th><th>持股比例</th><th>实缴</th><th>归属年限</th><th>悬崖期</th><th>状态</th><th>操作</th></tr></thead><tbody id="shareholderRows"></tbody></table></div>
+      </article>
+      <article class="panel">
+        <div class="section-head"><div><h2>分红建议</h2><p>仅用于内部测算，实际分红需履行公司决议、税务和法律程序</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>股东</th><th>持股比例</th><th>建议分红</th><th>税务提示</th></tr></thead><tbody id="dividendRows"></tbody></table></div>
+      </article>
+    </section>
+
+    <section class="view" id="fundraising">
+      <div class="module-head"><div><b>融资执行</b><span>从融资目标、机构筛选、接触推进到资料室，形成可执行管线</span></div><button id="refreshInvestorScout" class="primary">更新公开融资信号</button></div>
+      <div class="metrics" id="fundraisingMetrics"></div>
+      <div class="grid two">
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>融资轮次与稀释测算</h2><p>输入融资额和投前估值，自动计算新增投资人持股</p></div></div>
+          <form id="fundingRoundForm">
+            <div class="form-grid">
+              <label>轮次名称<input name="name" required placeholder="例如：天使轮"></label>
+              <label>目标融资额<input name="targetAmount" type="number" min="0" required></label>
+              <label>投前估值<input name="preMoneyValuation" type="number" min="0" required></label>
+              <label>预计交割日期<input name="expectedClose" type="date"></label>
+              <label>实际到账金额<input name="actualAmount" type="number" min="0" value="0"></label>
+              <label>融资状态<select name="status"><option>规划中</option><option>融资预热</option><option>正式推进</option><option>条款谈判</option><option>已交割</option></select></label>
+              <label>优先资本类型<select name="capitalType"><option>产业资本</option><option>财务投资</option><option>政府产业基金</option><option>可转债</option><option>银行信贷</option></select></label>
+            </div>
+            <label>资金用途<input name="useOfFunds" placeholder="产品、获客、团队、现金储备等"></label>
+            <button class="primary" type="submit">保存融资轮次</button>
+          </form>
+          <div id="dilutionPreview" class="impact-preview"></div>
+        </article>
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>新增目标机构</h2><p>每家机构必须有负责人、下一步和日期</p></div></div>
+          <form id="investorForm">
+            <div class="form-grid">
+              <label>机构名称<input name="institution" required></label>
+              <label>联系人<input name="contact"></label>
+              <label>渠道<select name="channel"><option>产业资本</option><option>财务投资</option><option>政府产业基金</option><option>银行 / 债权</option></select></label>
+              <label>关注方向<input name="focus"></label>
+              <label>阶段<select name="stage"><option>待研究</option><option>待引荐</option><option>已接触</option><option>材料已发送</option><option>管理层会议</option><option>尽职调查</option><option>条款谈判</option><option>已关闭</option></select></label>
+              <label>成功概率 %<input name="probability" type="number" min="0" max="100" value="10"></label>
+              <label>预计投资额<input name="ticket" type="number" min="0"></label>
+              <label>负责人<input name="owner"></label>
+              <label>下一步日期<input name="nextDate" type="date"></label>
+            </div>
+            <label>下一步动作<input name="nextAction"></label>
+            <label>投资逻辑 / 备注<input name="thesis"></label>
+            <button class="primary" type="submit">加入融资管线</button>
+          </form>
+        </article>
+      </div>
+      <article class="panel">
+        <div class="section-head"><div><h2>融资准备度</h2><p>经营指标、公司治理和资料室共同决定是否适合正式路演</p></div><span id="fundingGrade"></span></div>
+        <div id="fundingReadiness"></div>
+      </article>
       <div class="grid two">
         <article class="panel">
-          <div class="section-head"><div><h2>三大池子比例</h2><p>人数待定，先锁定 Founder（创始人）、Co-founder（联合创始人）和 ESOP（员工期权池）整体比例</p></div></div>
-          <form id="dividendRulesForm" class="form-grid">
-            <label>Founder Pool（创始人池）%<input name="founderPool" type="number" min="0" max="100" step="0.1"></label>
-            <label>Co-founder Option Pool（联合创始人期权池）%<input name="cofounderPool" type="number" min="0" max="100" step="0.1"></label>
-            <label>Employee ESOP（员工期权池）%<input name="employeeEsop" type="number" min="0" max="100" step="0.1"></label>
-            <label>Vesting Min（最短归属年限）<input name="vestingYearsMin" type="number" min="1" max="10" step="0.5"></label>
-            <label>Vesting Max（最长归属年限）<input name="vestingYearsMax" type="number" min="1" max="10" step="0.5"></label>
-            <label>Cliff（悬崖期，月）<input name="cliffMonths" type="number" min="0" max="48"></label>
-            <label>PMF Dividend Rate（PMF 分红比例）%<input name="pmfDividendRate" type="number" min="0" max="100" step="0.1"></label>
-            <label>Retention Reserve（留存及公积金）%<input name="retentionReserveRate" type="number" min="0" max="100" step="0.1"></label>
-            <label>After-tax Profit（税后利润）<input name="afterTaxProfit" type="number" min="0" step="1000"></label>
-            <label>Qualified Financing（合格融资金额）<input name="qualifiedFinancing" type="number" min="0" step="10000"></label>
-            <label>Founder Deferred Comp Cap（创始人递延补偿上限）<input name="founderDeferredCompCap" type="number" min="0" step="10000"></label>
-            <label>Financing Bonus Rate（融资奖金比例）%<input name="financingBonusRate" type="number" min="0" max="20" step="0.1"></label>
-            <label>Leaver Repurchase（离职回购）<select name="leaverRepurchase"><option>无离职回购</option><option>按协议处理未归属部分</option><option>需另行法律确认</option></select></label>
-            <button class="primary" type="submit">保存规则并联动融资雷达</button>
-          </form>
-          <div id="dividendRuleImpact" class="impact-preview"></div>
+          <div class="section-head"><div><h2>融资管线</h2><p>阶段、概率、金额、下一步和日期可直接修改</p></div></div>
+          <div class="table-wrap tall"><table><thead><tr><th>机构</th><th>渠道</th><th>阶段</th><th>概率</th><th>金额</th><th>下一步日期</th><th>下一步</th><th>操作</th></tr></thead><tbody id="investorRows"></tbody></table></div>
         </article>
         <article class="panel">
-          <div class="section-head"><div><h2>规则解释</h2><p>给 CEO（首席执行官）、Co-founder（联合创始人）和未来机构投资人看的统一口径</p></div></div>
-          <div id="dividendRuleBrief" class="brief"></div>
-          <div class="table-wrap dividend-table"><table><thead><tr><th>池子</th><th>比例</th><th>薪资</th><th>用途</th></tr></thead><tbody id="dividendPoolRows"></tbody></table></div>
+          <div class="section-head"><div><h2>Data Room（融资资料室）</h2><p>机构尽职调查核心资料清单</p></div></div>
+          <div id="dataRoomRows" class="checklist"></div>
         </article>
       </div>
-    </section>
-
-    <section class="view" id="reimbursements">
-      <div class="grid entry-grid">
-        <article class="panel">
-          <div class="section-head"><div><h2>录入报销</h2><p>支持发票、收据、付款截图等附件</p></div></div>
-          <form id="reimbursementForm">
+      <div class="grid two">
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>记录机构沟通</h2><p>会议、引荐、材料发送和下一步行动形成连续记录</p></div></div>
+          <form id="interactionForm">
             <div class="form-grid">
-              <label>费用日期<input name="date" type="date" required></label>
-              <label>报销人<input name="applicant" required placeholder="姓名"></label>
-              <label>金额<input name="amount" type="number" min="0" step="0.01" required></label>
-              <label>费用类别<select name="category"><option>软件与云服务</option><option>差旅交通</option><option>业务招待</option><option>办公用品</option><option>市场推广</option><option>外包服务</option><option>其他费用</option></select></label>
-              <label>收款方<input name="payee" required placeholder="商户或个人"></label>
-              <label>发票号码<input name="invoiceNo" placeholder="无发票可留空"></label>
+              <label>机构名称<input name="institution" list="investorOptions" required></label>
+              <label>沟通日期<input name="date" type="date" required></label>
+              <label>沟通类型<select name="type"><option>引荐</option><option>电话沟通</option><option>管理层会议</option><option>材料发送</option><option>尽调会议</option><option>条款沟通</option></select></label>
+              <label>下一步日期<input name="nextDate" type="date"></label>
             </div>
-            <label>事由<input name="description" required placeholder="说明业务用途"></label>
-            <label>票据附件<input name="file" type="file" accept="image/*,.pdf,.ofd"></label>
-            <div id="reimbursementImpact" class="impact-preview"></div>
-            <button class="primary" type="submit">提交报销</button>
+            <label>沟通纪要<input name="summary" required></label>
+            <label>下一步行动<input name="nextAction"></label>
+            <button class="primary" type="submit">保存沟通记录</button>
           </form>
+          <datalist id="investorOptions"></datalist>
         </article>
         <article class="panel">
-          <div class="metrics mini" id="reimbursementMetrics"></div>
-          <div class="section-head"><h2>报销清单</h2><span id="reimbursementCount"></span></div>
-          <div class="table-wrap tall"><table><thead><tr><th>日期</th><th>报销人 / 事由</th><th>金额</th><th>票据</th><th>状态</th></tr></thead><tbody id="reimbursementRows"></tbody></table></div>
+          <div class="section-head"><div><h2>最近沟通记录</h2><p>按时间倒序保留机构推进证据</p></div><span id="interactionCount"></span></div>
+          <div class="table-wrap tall"><table><thead><tr><th>日期</th><th>机构</th><th>类型</th><th>纪要</th><th>下一步</th><th>操作</th></tr></thead><tbody id="interactionRows"></tbody></table></div>
+        </article>
+      </div>
+      <div class="grid two">
+        <article class="panel">
+          <div class="section-head"><div><h2>国内机构参考库</h2><p>参考匹配不代表机构已经表达投资意向</p></div></div>
+          <div class="filter-strip"><select id="investorKeyword"><option value="">全部方向</option><option>数据</option><option>大交通</option><option>旅游</option><option>新兴入境</option><option>出境出海</option></select><select id="investorChannel"><option value="">全部渠道</option><option>产业资本</option><option>财务投资</option><option>政府产业基金</option></select></div>
+          <div id="investorTargets" class="target-list"></div>
+        </article>
+        <article class="panel">
+          <div class="section-head"><div><h2>公开市场信号</h2><p>仅作研究线索，需进一步核实</p></div></div>
+          <div id="fundingSignals" class="signal-list"></div>
         </article>
       </div>
     </section>
 
     <section class="view" id="accounting">
-      <div class="handoff-bar">
-        <div><b>代账交接包</b><span>资金流水、报销单、票据索引及原始附件一次性交付</span></div>
-        <label>交接月份<input id="accountingMonth" type="month"></label>
-        <button id="exportAccounting" class="primary">下载交接包</button>
-      </div>
+      <div class="module-head"><div><b>报销与代账</b><span>票据、审批、付款和月度交接统一管理</span></div><div class="inline-actions"><input id="accountingMonth" type="month"><button id="exportAccounting" class="primary">下载代账交接包</button></div></div>
       <div class="metrics" id="accountingMetrics"></div>
       <div class="grid two">
-        <article class="panel"><div class="section-head"><h2>待补资料</h2><span>影响记账与税务申报</span></div><div id="missingAccounting" class="issue-list"></div></article>
-        <article class="panel"><div class="section-head"><h2>交接说明</h2><span>给代账公司</span></div><div id="accountingNote" class="brief"></div></article>
-      </div>
-      <article class="panel">
-        <div class="section-head"><h2>本月交接明细</h2><span id="accountingRowCount"></span></div>
-        <div class="table-wrap"><table><thead><tr><th>日期</th><th>业务类型</th><th>对象</th><th>类别</th><th>金额</th><th>发票</th><th>附件</th></tr></thead><tbody id="accountingRows"></tbody></table></div>
-      </article>
-    </section>
-
-    <section class="view" id="fundraising">
-      <div class="radar-bar">
-        <div><b>融资雷达</b><span>候选机构仅代表策略匹配，不代表对方已经表达投资意向</span></div>
-        <button id="refreshInvestorScout" class="primary">联网更新融资信号</button>
-      </div>
-      <div class="metrics" id="fundraisingMetrics"></div>
-      <article class="panel funding-compass">
-        <div class="section-head"><div><h2>Future Flow 融资判断</h2><p>适合的融资状态、达标标准与当前缺口</p></div></div>
-        <div id="fundingReadiness"></div>
-      </article>
-      <article class="panel capital-radar-panel">
-        <div class="section-head"><div><h2>投行资本适配雷达</h2><p>Investment Banking Radar（投行雷达）：哪些维度适合对接资本，哪些维度需要补课</p></div><span id="capitalRadarGrade"></span></div>
-        <div id="capitalRadar" class="capital-radar"></div>
-      </article>
-      <details class="panel compact-details investment-dimensions">
-        <summary><span><b>投资机构专业评估维度</b><small>增长、收入质量、单位经济、治理和交易条件</small></span><span>展开查看</span></summary>
-        <div id="investmentDimensions" class="professional-body"></div>
-      </details>
-      <div class="filter-strip">
-        <span>国内机构筛选</span>
-        <select id="investorKeyword"><option value="">全部关键词</option><option>数据</option><option>大交通</option><option>旅游</option><option>新兴入境</option><option>出境出海</option><option>电商</option></select>
-        <select id="investorChannel"><option value="">全部渠道</option><option>产业资本</option><option>财务投资</option><option>政府产业基金</option></select>
-      </div>
-      <div class="grid radar-grid">
-        <article class="panel">
-          <div class="section-head"><div><h2>优先接触机构</h2><p>仅筛选国内机构，按经营指标动态计算匹配度</p></div><span id="targetUpdatedAt"></span></div>
-          <div id="investorTargets" class="target-list"></div>
+        <article class="panel entry-panel">
+          <div class="section-head"><div><h2>录入报销</h2><p>上传发票、收据或付款截图并保留哈希值</p></div></div>
+          <form id="reimbursementForm">
+            <div class="form-grid">
+              <label>费用日期<input name="date" type="date" required></label>
+              <label>报销人<input name="applicant" required></label>
+              <label>金额<input name="amount" type="number" min="0" required></label>
+              <label>费用类别<select name="category"><option>软件与云服务</option><option>差旅交通</option><option>业务招待</option><option>办公用品</option><option>市场推广</option><option>外包服务</option><option>其他费用</option></select></label>
+              <label>收款方<input name="payee" required></label>
+              <label>发票号码<input name="invoiceNo"></label>
+            </div>
+            <label>事由<input name="description" required></label>
+            <label>票据附件<input name="file" type="file" accept="image/*,.pdf,.ofd"></label>
+            <button class="primary" type="submit">提交报销</button>
+          </form>
         </article>
         <article class="panel">
-          <div class="section-head"><div><h2>最新市场信号</h2><p>公开新闻扫描，用于发现正在出手的机构和赛道变化</p></div><span id="signalUpdatedAt"></span></div>
-          <div id="fundingSignals" class="signal-list"></div>
+          <div class="section-head"><div><h2>报销台账</h2><p>状态变化自动联动费用、应付和现金</p></div><span id="reimbursementCount"></span></div>
+          <div class="table-wrap tall"><table><thead><tr><th>日期</th><th>报销人 / 事由</th><th>金额</th><th>票据</th><th>状态</th><th>操作</th></tr></thead><tbody id="reimbursementRows"></tbody></table></div>
         </article>
       </div>
       <article class="panel">
-        <div class="section-head"><div><h2>融资执行清单</h2><p>以当前只有四个客户的阶段设置门槛</p></div></div>
-        <div id="fundraisingActions" class="action-list"></div>
+        <div class="section-head"><div><h2>当月交接预览</h2><p>交给代账公司的收入、成本和报销数据</p></div><span id="accountingRowCount"></span></div>
+        <div class="table-wrap"><table><thead><tr><th>日期</th><th>类型</th><th>对象</th><th>类别</th><th>金额</th><th>发票 / 附件</th><th>状态</th></tr></thead><tbody id="accountingRows"></tbody></table></div>
       </article>
     </section>
   </main>
   <div id="toast"></div>
-  <script src="app.js?v=20260608-1"></script>
+  <script src="app.js?v=20260614"></script>
 </body>
 </html>
