@@ -41,6 +41,18 @@
         <div><b id="healthLabel">等待经营数据</b><span id="healthReason">请从上方快速入口录入第一份合同或成本。</span></div>
         <span id="dataFreshness"></span>
       </div>
+      <div class="dashboard-visuals">
+        <article class="panel hero-gauge-panel">
+          <div id="overallGauge"></div>
+        </article>
+        <article class="panel mini-gauge-panel">
+          <div id="miniGauges" class="gauge-grid"></div>
+        </article>
+      </div>
+      <article class="panel">
+        <div class="section-head"><div><h2>红黄绿状态灯</h2><p>一眼判断现金、回款、成本、票据、融资和股权风险</p></div></div>
+        <div id="trafficLights" class="traffic-grid"></div>
+      </article>
       <div class="metrics" id="dashboardMetrics"></div>
       <div class="grid two">
         <article class="panel">
@@ -60,6 +72,16 @@
         <article class="panel">
           <div class="section-head"><div><h2>未来 12 个月收入计划</h2><p>来自有效合同自动生成的应收计划</p></div></div>
           <div id="revenuePlan" class="bar-chart"></div>
+        </article>
+      </div>
+      <div class="grid two">
+        <article class="panel">
+          <div class="section-head"><div><h2>资金流向瀑布图</h2><p>钱从哪里来、花到哪里去</p></div></div>
+          <div id="cashWaterfall" class="waterfall"></div>
+        </article>
+        <article class="panel">
+          <div class="section-head"><div><h2>融资漏斗</h2><p>机构推进阶段一眼看懂</p></div></div>
+          <div id="fundingFunnel" class="funnel"></div>
         </article>
       </div>
       <details class="panel">

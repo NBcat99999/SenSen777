@@ -92,6 +92,10 @@ function scoreModel(f){
  const funding=Math.min(100,(f.weightedFunding/(f.target||1))*60+f.dataRoomRate*.4);
  return{cash,revenue,cost,compliance,funding,score:(cash+revenue+cost+compliance+funding)/5};
 }
+const band=v=>v>=75?'good':v>=50?'warn':'risk';
+const bandText=v=>v>=75?'安全':v>=50?'预警':'危险';
+const gauge=(label,value,sub)=>`<div class="gauge ${band(value)}" style="--score:${Math.round(value)}"><div class="gauge-ring"><strong>${Math.round(value)}</strong><span>分</span></div><b>${label}</b><small>${sub}</small></div>`;
+const light=(label,status,detail)=>`<div class="traffic-item ${status}"><i></i><b>${label}</b><span>${detail}</span></div>`;
 
 function renderDashboard(){
  const f=derive(),s=scoreModel(f);
@@ -107,6 +111,21 @@ function renderDashboard(){
  $('#healthLabel').textContent=empty?'空库已就绪':s.score>=75?'经营基础较完整':s.score>=50?'存在待补项目':'关键经营数据不足';
  $('#healthReason').textContent=empty?'请录入第一份合同、员工或成本，系统将自动形成财务结果。':`综合评分 ${Math.round(s.score)} 分；优先处理现金、逾期应收和资料完整度。`;
  $('#dataFreshness').textContent=`更新 ${String(state.updatedAt||'').slice(0,16).replace('T',' ')}`;
+ $('#overallGauge').innerHTML=`<div class="overall ${band(s.score)}" style="--score:${Math.round(s.score)}"><div class="overall-ring"><strong>${Math.round(s.score)}</strong><span>${bandText(s.score)}</span></div><div><b>综合经营健康度</b><p>${empty?'空库已就绪，录入第一份业务后自动生成判断。':`现金、收入、成本、合规、融资综合评分 ${Math.round(s.score)} 分。`}</p></div></div>`;
+ $('#miniGauges').innerHTML=[
+  gauge('Cash Safety（现金安全）',s.cash,f.runway>=99?'现金净流入':`${f.runway.toFixed(1)} 个月`),
+  gauge('Revenue Quality（收入质量）',s.revenue,`${f.contracts.length} 份合同`),
+  gauge('Cost Control（成本控制）',s.cost,`毛利率 ${pct(f.grossMargin)}`),
+  gauge('Fundraising Readiness（融资准备）',s.funding,`资料室 ${pct(f.dataRoomRate)}`)
+ ].join('');
+ $('#trafficLights').innerHTML=[
+  light('现金',f.runway>=6?'good':f.runway>=3?'warn':'risk',f.runway>=99?'净流入':`${f.runway.toFixed(1)} 个月`),
+  light('回款',f.overdue.length?f.overdue.length>2?'risk':'warn':'good',`${f.overdue.length} 笔逾期`),
+  light('成本',f.monthlyCost&&f.mrr&&f.monthlyCost>f.monthlyRevenue?'warn':'good',`月成本 ${money(f.monthlyCost)}`),
+  light('票据',f.evidenceRate>=90?'good':f.evidenceRate>=70?'warn':'risk',pct(f.evidenceRate)),
+  light('融资',s.funding>=60?'good':s.funding>=35?'warn':'risk',`覆盖 ${f.target?(f.weightedFunding/f.target).toFixed(1):'0.0'} 倍`),
+  light('股权',state.shareholders.length?'good':'warn',state.shareholders.length?'已建立':'待录入')
+ ].join('');
  const cashForm=$('#cashBalanceForm');
  cashForm.elements.bankBalance.value=state.accounts.find(x=>x.id==='acc-bank')?.openingBalance||0;
  cashForm.elements.cashBalance.value=state.accounts.find(x=>x.id==='acc-cash')?.openingBalance||0;
@@ -126,6 +145,8 @@ function renderDashboard(){
  ].map(x=>`<div class="trace-row"><span><b>${x[0]}</b><small>${x[1]}</small></span><strong>${money(x[2])}</strong></div>`).join('');
  $('#compassGrade').textContent=`${Math.round(s.score)} 分`;
  $('#compassDimensions').innerHTML=[['现金安全',s.cash],['收入验证',s.revenue],['成本与毛利',s.cost],['合规证据',s.compliance],['融资准备',s.funding]].map(x=>`<div class="dimension-row"><span>${x[0]}</span><div><i style="width:${Math.round(x[1])}%"></i></div><b>${Math.round(x[1])}</b></div>`).join('');
+ renderCashWaterfall(f);
+ renderFundingFunnel();
  renderRevenuePlan();
  $('#professionalMetrics').innerHTML=[
   metric('ARR（年度经常性收入）',money(f.mrr*12),'MRR × 12'),
@@ -136,6 +157,27 @@ function renderDashboard(){
   metric('资料室完成度',pct(f.dataRoomRate),'尽职调查准备度')
  ].join('');
  $('#glossaryRows').innerHTML=glossary.map(x=>`<tr>${x.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('');
+}
+
+function renderCashWaterfall(f){
+ const rows=[
+  ['期初现金',sum(state.accounts,x=>Number(x.openingBalance||0)),'base'],
+  ['本月回款',sum(f.received.filter(x=>String(x.date).startsWith(MONTH))),'in'],
+  ['融资到账',f.financingReceived,'in'],
+  ['工资',-sum(f.paidPayroll),'out'],
+  ['成本',-sum(f.costs.filter(x=>x.status==='已支付'),costTotal),'out'],
+  ['报销',-sum(f.paidClaims),'out'],
+  ['当前现金',f.actualCash,'end']
+ ];
+ const max=Math.max(1,...rows.map(x=>Math.abs(x[1])));
+ $('#cashWaterfall').innerHTML=rows.map(x=>`<div class="water-row ${x[2]}"><span>${x[0]}</span><div><i style="width:${Math.max(4,Math.abs(x[1])/max*100)}%"></i></div><b>${money(x[1])}</b></div>`).join('');
+}
+
+function renderFundingFunnel(){
+ const stages=['待研究','待引荐','已接触','材料已发送','管理层会议','尽职调查','条款谈判'];
+ const counts=stages.map(s=>active(state.investorPipeline).filter(x=>x.stage===s).length);
+ const max=Math.max(1,...counts);
+ $('#fundingFunnel').innerHTML=stages.map((s,i)=>`<div class="funnel-row"><span>${s}</span><div style="--w:${Math.max(14,counts[i]/max*100)}%"><i></i></div><b>${counts[i]}</b></div>`).join('');
 }
 
 function renderRevenuePlan(){
